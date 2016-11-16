@@ -1,8 +1,10 @@
 package neuralnet
 
 import (
+    "os"
     "log"
-    _"fmt"
+    _"bytes"
+    "encoding/binary"
 )
 
 type TVector []float32
@@ -45,6 +47,7 @@ type NN interface {
     GetDSyn0(i int32) (*TVector)
     GetSyn1(i int32) (*TVector)
     GetSyn1NEG(i int32) (*TVector)
+    Save(fname string) (err error)
 }
 
 type NNImpl struct {
@@ -81,6 +84,15 @@ func (p *NNImpl) getRandomVector(dim int) (vector TVector) {
         vector = append(vector, v)
     }
     return vector
+}
+
+func (p *NNImpl) Save(fname string) (err error) {
+    fd, err := os.Create(fname)
+    if err != nil {
+        log.Fatal(err)
+    }
+    err = binary.Write(fd, binary.BigEndian, p.syn0)
+    return err
 }
 
 func NewNN(docSize, wordSize, dim int, useHS, useNEG bool) NN {

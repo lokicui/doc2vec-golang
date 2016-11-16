@@ -1,5 +1,6 @@
 package common
 
+
 func Max(first int, args ... int) int {
     for _, v := range args {
         if first < v {

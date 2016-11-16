@@ -30,6 +30,8 @@ type Corpus interface {
     Build(fname string)             (err error)
     GetVocabSize() int
     GetDocSize() int
+    GetWordsCnt() int
+    GetWordIdx(word string)         (idx int32, ok bool)
     GetWordItemByIdx(i int)         (item * WordItem)
     GetAllWords()                   (words TWordItemSlice)
     GetAllDocWordsIdx()             ([][]int32)
@@ -46,8 +48,17 @@ type CorpusImpl struct {
     docIdx          map[string]int32
     minReduce       int32
     minCnt          int32
+    wordsCnt        int
 }
 
+func (p *CorpusImpl) GetWordIdx(word string) (idx int32, ok bool) {
+    idx, ok = p.wordIdx[word]
+    return idx, ok
+}
+
+func (p *CorpusImpl) GetWordsCnt() int {
+    return p.wordsCnt
+}
 
 func (p *CorpusImpl) createBinaryTree() {
     vocab_size := p.GetVocabSize()
@@ -141,7 +152,7 @@ func (p TWordItemSlice) Swap(i, j int) {
 }
 
 func (p *CorpusImpl) GetDocSize() int {
-    return len(p.GetAllDocWords())
+    return len(p.docIdx)
 }
 
 func (p *CorpusImpl) GetVocabSize() int {
@@ -180,9 +191,10 @@ func (p *CorpusImpl) GetWordItemByIdx(i int) (item * WordItem) {
 
 func (p *CorpusImpl) GetDocWordsByIdx(i int) (doc [] *WordItem) {
     if i >= 0 && i < len(p.docWordsIdx) {
-        for _, idx := range p.docWordsIdx[i] {
+        doc = make([]*WordItem, len(p.docWordsIdx[i]), len(p.docWordsIdx[i]))
+        for j, idx := range p.docWordsIdx[i] {
             if idx >= 0 && idx < int32(len(p.words)) {
-                doc = append(doc, &p.words[idx])
+                doc[j] = &p.words[idx]
             }
         }
     }
@@ -291,10 +303,13 @@ func (p *CorpusImpl) sortVocab() {
     p.wordIdx = map[string]int32 {}
     var cnt int32 = 0
     sort.Sort(sort.Reverse(p.words))
+
+    p.wordsCnt = 0
     for _, item := range p.words {
         if item.Cnt > p.minCnt {
             p.words[cnt] = item
             p.wordIdx[item.Word] = cnt
+            p.wordsCnt += int(cnt)
             cnt ++
         }
     }
