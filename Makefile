@@ -5,10 +5,12 @@ thrift_fnames := $(wildcard interface/*.thrift)
 
 
 all : thrift
-	@export GOPATH=`pwd` && cd src && go build  doc2vec.go && cd - && echo "all"
+	@export GOPATH=`pwd` && cd src && go build  train.go && cd - && echo "all"
+	@export GOPATH=`pwd` && cd src && go build  knn.go && cd - && echo "all"
 
 debug : thrift
-	@export GOPATH=`pwd` && cd src && go build -gcflags "-N -l" doc2vec.go && cd - && echo "debug"
+	@export GOPATH=`pwd` && cd src && go build -gcflags "-N -l" train.go && cd - && echo "debug"
+	@export GOPATH=`pwd` && cd src && go build -gcflags "-N -l" knn.go && cd - && echo "debug"
 
 
 .PHONY : thrift debug
