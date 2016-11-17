@@ -16,13 +16,13 @@ import (
 )
 
 const (
-	MAX_EXP        float64 = 6
-	EXP_TABLE_SIZE int     = 1000
-    NEG_SAMPLING_TABLE_SIZE int = 1e8
+	MAX_EXP                 float64 = 6
+	EXP_TABLE_SIZE          int     = 1000
+	NEG_SAMPLING_TABLE_SIZE int     = 1e8
 )
 
 var gExpTable [EXP_TABLE_SIZE]float64
-var gNegSamplingTable   [NEG_SAMPLING_TABLE_SIZE]int32
+var gNegSamplingTable [NEG_SAMPLING_TABLE_SIZE]int32
 var gNextRandom uint64 = 1
 
 func init() {
@@ -32,29 +32,29 @@ func init() {
 	}
 }
 
-func (p * TDoc2VecImpl) InitUnigramTable() {
-    train_words_power := 0.0
-    power := 0.75
-    words := p.Corpus.GetAllWords()
-    if NEG_SAMPLING_TABLE_SIZE <= len(words) {
-        log.Fatal("NEG_SAMPLING_TABLE_SIZE < len(words)")
-    }
-    for _, worditem := range words {
-        train_words_power += math.Pow(float64(worditem.Cnt), power)
-    }
-    var i int32 = 0
-    d1 := math.Pow(float64(words[i].Cnt), power) / train_words_power
-    vocabsize := int32(p.Corpus.GetVocabCnt())
-    for a := 0; a < NEG_SAMPLING_TABLE_SIZE; a ++ {
-        gNegSamplingTable[a] = i
-        if float64(a) / float64(NEG_SAMPLING_TABLE_SIZE) > d1 {
-            i ++
-            d1 += math.Pow(float64(words[i].Cnt), power) / train_words_power
-        }
-        if i >= vocabsize {
-            i = vocabsize - 1
-        }
-    }
+func (p *TDoc2VecImpl) InitUnigramTable() {
+	train_words_power := 0.0
+	power := 0.75
+	words := p.Corpus.GetAllWords()
+	if NEG_SAMPLING_TABLE_SIZE <= len(words) {
+		log.Fatal("NEG_SAMPLING_TABLE_SIZE < len(words)")
+	}
+	for _, worditem := range words {
+		train_words_power += math.Pow(float64(worditem.Cnt), power)
+	}
+	var i int32 = 0
+	d1 := math.Pow(float64(words[i].Cnt), power) / train_words_power
+	vocabsize := int32(p.Corpus.GetVocabCnt())
+	for a := 0; a < NEG_SAMPLING_TABLE_SIZE; a++ {
+		gNegSamplingTable[a] = i
+		if float64(a)/float64(NEG_SAMPLING_TABLE_SIZE) > d1 {
+			i++
+			d1 += math.Pow(float64(words[i].Cnt), power) / train_words_power
+		}
+		if i >= vocabsize {
+			i = vocabsize - 1
+		}
+	}
 }
 
 func GetSigmoidValue(f float64) float64 {
@@ -63,9 +63,9 @@ func GetSigmoidValue(f float64) float64 {
 }
 func GetNegativeSamplingWordIdx() int32 {
 	gNextRandom = gNextRandom*25214903917 + 11
-    idx := int(int(gNextRandom >> 16) % NEG_SAMPLING_TABLE_SIZE)
-    target := gNegSamplingTable[idx]
-    return int32(target)
+	idx := int(int(gNextRandom>>16) % NEG_SAMPLING_TABLE_SIZE)
+	target := gNegSamplingTable[idx]
+	return int32(target)
 }
 
 func (p TSortItemSlice) Len() int {
@@ -80,12 +80,12 @@ func (p TSortItemSlice) Swap(i, j int) {
 
 func NewDoc2Vec(useCbow, useHS, useNEG bool, windowSize, dim, iters int) IDoc2Vec {
 	self := &TDoc2VecImpl{
-        UseCbow:    useCbow,
+		UseCbow:    useCbow,
 		UseHS:      useHS,
 		UseNEG:     useNEG,
 		WindowSize: windowSize,
 		Dim:        dim,
-        Negative:   5,
+		Negative:   5,
 		Corpus:     corpus.NewCorpus(),
 		NN:         neuralnet.NewNN(0, 0, 0, false, false),
 		StartAlpha: 0.025,
@@ -110,9 +110,9 @@ func (p *TDoc2VecImpl) getRandomWindowSize() int {
 func (p *TDoc2VecImpl) Train(fname string) {
 	p.Trainfile = fname
 	p.Corpus.Build(fname)
-    if p.UseNEG {
-        p.InitUnigramTable()
-    }
+	if p.UseNEG {
+		p.InitUnigramTable()
+	}
 	p.NN = neuralnet.NewNN(p.Corpus.GetDocCnt(), p.Corpus.GetVocabCnt(), p.Dim, p.UseHS, p.UseNEG)
 	for i := 0; i < p.Iters; i++ {
 		p.TrainCbow()
@@ -294,74 +294,74 @@ func (p *TDoc2VecImpl) TrainCbow() {
 				cw++
 				neu1.Divide(float32(cw))
 
-                //Hierarchical Softmax
-                if p.UseHS {
-                    //foreach inner node of words[widx]
-                    worditem := p.Corpus.GetWordItemByIdx(int(widx))
-                    for i, point := range worditem.Point {
-                        syn1 := p.NN.GetSyn1(point) //Theta
-                        // Propagate hidden -> output
-                        f := neu1.Dot(*syn1) // f = Sigmoid[X(w) dot Theta]
-                        g := 0.0 //g = alpha * (1 - Dj(w) - f)
-                        if f >= MAX_EXP {
-                            f = 1.0
-                        } else if f <= -MAX_EXP {
-                            f = 0.0
-                        } else {
-                            f = GetSigmoidValue(f)
-                        }
-                        // 'g' is the gradient multiplied by the learning rate
-                        label := 0.0
-                        if worditem.Code[i] {
-                            label = 1.0
-                        }
-                        g = (1.0 - label - f) * f * alpha
-                        // Propagate errors output -> hidden  e := e + g*Theta
-                        copy(syn1copy, *syn1)
-                        syn1copy.Multiply(g)
-                        neu1e.Add(syn1copy)
-                        // Learn weights hidden -> output   Theta := Theta + gX(w)
-                        copy(neu1copy, neu1)
-                        neu1copy.Multiply(g)
-                        syn1.Add(neu1copy)
-                    }
-                }
+				//Hierarchical Softmax
+				if p.UseHS {
+					//foreach inner node of words[widx]
+					worditem := p.Corpus.GetWordItemByIdx(int(widx))
+					for i, point := range worditem.Point {
+						syn1 := p.NN.GetSyn1(point) //Theta
+						// Propagate hidden -> output
+						f := neu1.Dot(*syn1) // f = Sigmoid[X(w) dot Theta]
+						g := 0.0             //g = alpha * (1 - Dj(w) - f)
+						if f >= MAX_EXP {
+							f = 1.0
+						} else if f <= -MAX_EXP {
+							f = 0.0
+						} else {
+							f = GetSigmoidValue(f)
+						}
+						// 'g' is the gradient multiplied by the learning rate
+						label := 0.0
+						if worditem.Code[i] {
+							label = 1.0
+						}
+						g = (1.0 - label - f) * f * alpha
+						// Propagate errors output -> hidden  e := e + g*Theta
+						copy(syn1copy, *syn1)
+						syn1copy.Multiply(g)
+						neu1e.Add(syn1copy)
+						// Learn weights hidden -> output   Theta := Theta + gX(w)
+						copy(neu1copy, neu1)
+						neu1copy.Multiply(g)
+						syn1.Add(neu1copy)
+					}
+				}
 
-                if p.UseNEG {
-                    label := 0.0
-                    var point int32 = 0
-                    for i := 0; i < p.Negative + 1; i ++ {
-                        if i == 0 {
-                            label = 1.0
-                            point = widx
-                        } else {
-                            label = 0.0
-                            point = GetNegativeSamplingWordIdx()
-                            if point == widx {
-                                continue
-                            }
-                        }
-                        syn1neg := p.NN.GetSyn1Neg(point)
-                        f := neu1.Dot(*syn1neg)
-                        g := 0.0
-                        if f >= MAX_EXP {
-                            f = 1.0
-                        } else if f <= -MAX_EXP {
-                            f = 0.0
-                        } else {
-                            f = GetSigmoidValue(f)
-                        }
-                        g = (label - f) * alpha
-                        // Propagate errors output -> hidden  e := e + g*Theta
-                        copy(syn1copy, *syn1neg)
-                        syn1copy.Multiply(g)
-                        neu1e.Add(syn1copy)
-                        // Learn weights hidden -> output   Theta := Theta + gX(w)
-                        copy(neu1copy, neu1)
-                        neu1copy.Multiply(g)
-                        syn1neg.Add(neu1copy)
-                    }
-                }
+				if p.UseNEG {
+					label := 0.0
+					var point int32 = 0
+					for i := 0; i < p.Negative+1; i++ {
+						if i == 0 {
+							label = 1.0
+							point = widx
+						} else {
+							label = 0.0
+							point = GetNegativeSamplingWordIdx()
+							if point == widx {
+								continue
+							}
+						}
+						syn1neg := p.NN.GetSyn1Neg(point)
+						f := neu1.Dot(*syn1neg)
+						g := 0.0
+						if f >= MAX_EXP {
+							f = 1.0
+						} else if f <= -MAX_EXP {
+							f = 0.0
+						} else {
+							f = GetSigmoidValue(f)
+						}
+						g = (label - f) * alpha
+						// Propagate errors output -> hidden  e := e + g*Theta
+						copy(syn1copy, *syn1neg)
+						syn1copy.Multiply(g)
+						neu1e.Add(syn1copy)
+						// Learn weights hidden -> output   Theta := Theta + gX(w)
+						copy(neu1copy, neu1)
+						neu1copy.Multiply(g)
+						syn1neg.Add(neu1copy)
+					}
+				}
 
 				// hidden -> in                         v(u) := v(u) + e
 				for a := start; a < end; a++ {
@@ -394,7 +394,7 @@ func (p *TDoc2VecImpl) FindKNN(word string) {
 		dis_vector[i] = &SortItem{Idx: int32(i), Dis: dis}
 	}
 	//大爷的 go的排序太麻烦,还不如自己写个快排
-    //QuickSort(0, len(dis_vector) - 1, dis_vector)
+	//QuickSort(0, len(dis_vector) - 1, dis_vector)
 	sort.Sort(sort.Reverse(dis_vector))
 	fmt.Printf("word:%v\n", needle_worditem.Word)
 	for i := 0; i < len(dis_vector) && i < 10; i++ {
