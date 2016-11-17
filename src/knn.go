@@ -10,7 +10,7 @@ import (
 
 func main() {
 	fname := os.Args[1]
-	d2v := doc2vec.NewDoc2Vec(true, true, 5, 50, 1)
+	d2v := doc2vec.NewDoc2Vec(true, false, true, 5, 50, 1)
 	d2v.LoadModel(fname)
 	for true {
 		reader := bufio.NewReader(os.Stdin)

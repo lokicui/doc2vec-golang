@@ -54,7 +54,7 @@ func (p *TNeuralNetImpl) GetDSyn0(i int32) *TVector {
 func (p *TNeuralNetImpl) GetSyn1(i int32) *TVector {
 	return &p.Syn1[int(i)]
 }
-func (p *TNeuralNetImpl) GetSyn1NEG(i int32) *TVector {
+func (p *TNeuralNetImpl) GetSyn1Neg(i int32) *TVector {
 	return &p.Syn1neg[int(i)]
 }
 
