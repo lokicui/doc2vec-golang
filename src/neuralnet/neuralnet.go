@@ -51,6 +51,11 @@ func (p *TNeuralNetImpl) GetSyn0(i int32) *TVector {
 func (p *TNeuralNetImpl) GetDSyn0(i int32) *TVector {
 	return &p.Dsyn0[int(i)]
 }
+func (p *TNeuralNetImpl) NewDSyn0() * TVector {
+    dim := len(*p.GetDSyn0(0))
+    self :=  p.getRandomVector(dim)
+    return &self
+}
 func (p *TNeuralNetImpl) GetSyn1(i int32) *TVector {
 	return &p.Syn1[int(i)]
 }

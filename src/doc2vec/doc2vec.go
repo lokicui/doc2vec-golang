@@ -16,6 +16,8 @@ import (
 )
 
 var _ = sort.Sort
+var _ = bytes.NewBuffer
+var _ = binary.Read
 
 const (
 	MAX_EXP                 float64 = 6
@@ -34,7 +36,7 @@ func init() {
 	}
 }
 
-func (p *TDoc2VecImpl) InitUnigramTable() {
+func (p *TDoc2VecImpl) initUnigramTable() {
 	train_words_power := 0.0
 	power := 0.75
 	words := p.Corpus.GetAllWords()
@@ -109,18 +111,101 @@ func (p *TDoc2VecImpl) getRandomWindowSize() int {
 	return int(gNextRandom % uint64(p.WindowSize))
 }
 
+func (p *TDoc2VecImpl) getLikelihood4Pair(widx int32, rangevec * neuralnet.TVector) (likelihood float64) {
+    //Hierarchical Softmax
+    //@todo 考虑负采样是否也ok
+    if true || p.UseHS {
+        //foreach inner node of words[widx]
+        worditem := p.Corpus.GetWordItemByIdx(int(widx))
+        for i, point := range worditem.Point {
+            syn1 := p.NN.GetSyn1(point) //Theta
+            f := rangevec.Dot(*syn1) // f = Sigmoid[X(w) dot Theta]
+            label := -1.0
+            if worditem.Code[i] {
+                label = 1.0
+            }
+            f = -1.0 * math.Log(1.0 + math.Exp(label * f))  // II[1/(1+e^-x)]  连乘取log
+            likelihood += f
+        }
+    }
+    return likelihood
+}
+
+func (p *TDoc2VecImpl) getLikelihood4Doc(context string) (likelihood float64) {
+    wordsidx := p.Corpus.Transform(context)
+    for spos, widx := range wordsidx {
+        //针对计算doc中每个词的likelihood
+        b := p.getRandomWindowSize()
+        start := common.Max(0, spos-p.WindowSize+b)
+        end := common.Min(len(wordsidx), spos+p.WindowSize-b+1)
+        //in -> hidden      X(widx) = E[V(a)]
+
+        if p.UseCbow {
+            neu1 := make(neuralnet.TVector, p.Dim, p.Dim)     //X(w)
+            cw := 0
+            for a := start; a < end; a++ {
+                if a == spos {
+                    continue
+                }
+                idx := wordsidx[a]
+                neu1.Add(*p.NN.GetSyn0(idx))
+                cw++
+            }
+            //##################################################################
+            //X(widx) += Document Vector
+            //dsyn0 := p.NN.GetDSyn0(int32(docidx))
+            //neu1.Add(*dsyn0)
+            //cw++
+            //Note: @todo
+            //这里可以考虑是否先生成doc的向量,然后讲doc的向量也加到neu1里面
+            //##################################################################
+
+            neu1.Divide(float32(cw))
+            likelihood += p.getLikelihood4Pair(widx, &neu1)
+        } else {
+            for a := start; a < end; a++ {
+                if a == spos {
+                    continue
+                }
+                idx := wordsidx[a]
+                rangevec := p.NN.GetSyn0(idx)
+                likelihood += p.getLikelihood4Pair(widx, rangevec)
+            }
+        }
+    }
+    return likelihood
+}
+
+//online fit doc vector
+func (p *TDoc2VecImpl) FitDoc(context string, iters int) (dsyn0 *neuralnet.TVector) {
+    wordsidx := p.Corpus.Transform(context)
+    dsyn0 = p.NN.NewDSyn0()
+    trainedwords := 0
+    totalwords := iters * len(wordsidx) + 1
+    for i := 0; i < iters; i ++ {
+        alpha := p.getAlpha(trainedwords, totalwords)
+        trainedwords += len(wordsidx)
+        if p.UseCbow {
+            p.trainCbow4Document(wordsidx, dsyn0, alpha, true)
+        } else {
+            p.trainSkipGram4Document(wordsidx, dsyn0, alpha, true)
+        }
+    }
+    return dsyn0
+}
+
 func (p *TDoc2VecImpl) Train(fname string) {
 	p.Trainfile = fname
 	p.Corpus.Build(fname)
 	if p.UseNEG {
-		p.InitUnigramTable()
+		p.initUnigramTable()
 	}
 	p.NN = neuralnet.NewNN(p.Corpus.GetDocCnt(), p.Corpus.GetVocabCnt(), p.Dim, p.UseHS, p.UseNEG)
 	for i := 0; i < p.Iters; i++ {
 		if p.UseCbow {
-			p.TrainCbow()
+			p.trainCbow()
 		} else {
-			p.TrainSkipGram()
+			p.trainSkipGram()
 		}
 	}
 }
@@ -134,6 +219,20 @@ func (p *TDoc2VecImpl) SaveModel(fname string) (err error) {
 	return p.EncodeMsg(msgp.NewWriter(fd))
 }
 
+func (p *TDoc2VecImpl) LoadModel(fname string) (err error) {
+	fd, err := os.Open(fname)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer fd.Close()
+	err = p.DecodeMsg(msgp.NewReader(fd))
+    if err == nil && p.UseNEG {
+        p.initUnigramTable()
+    }
+    return err
+}
+
+/*
 func (p *TDoc2VecImpl) SaveModel_byself(fname string) (err error) {
 	fd, err := os.Create(fname)
 	if err != nil {
@@ -192,16 +291,6 @@ func (p *TDoc2VecImpl) SaveModel_byself(fname string) (err error) {
 	return err
 }
 
-func (p *TDoc2VecImpl) LoadModel(fname string) (err error) {
-	fd, err := os.Open(fname)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer fd.Close()
-	return p.DecodeMsg(msgp.NewReader(fd))
-}
-
-/*
 func (p *TDoc2VecImpl) LoadModel_byself(fname string) (err error) {
 	fd, err := os.Open(fname)
 	if err != nil {
@@ -248,19 +337,22 @@ func (p *TDoc2VecImpl) LoadModel_byself(fname string) (err error) {
 }
 */
 
-func (p *TDoc2VecImpl) GetAlpha() float64 {
-	alpha := p.StartAlpha * (1.0 - float64(p.TrainedWords)/float64(p.Iters*p.Corpus.GetWordsCnt()+1))
+func (p *TDoc2VecImpl) getAlpha(trained, total int) float64 {
+	alpha := p.StartAlpha * (1.0 - float64(trained)/float64(total+1))
 	if alpha < p.StartAlpha*0.0001 {
 		alpha = p.StartAlpha * 0.0001
 	}
 	return alpha
 }
+func (p *TDoc2VecImpl) getTrainAlpha() float64 {
+    return p.getAlpha(p.TrainedWords, p.Iters * p.Corpus.GetWordsCnt() + 1)
+}
 
 // P(V(centralwidx) | rangevec) foreach rangevec in Context(centralwidx)
-func (p *TDoc2VecImpl) TrainPairSkipGram(centralwidx int32, rangevec *neuralnet.TVector, alpha float64) {
+func (p *TDoc2VecImpl) trainSkipGram4Pair(centralwidx int32, rangevec *neuralnet.TVector, alpha float64, infer bool) {
 	neu1e := make(neuralnet.TVector, p.Dim, p.Dim)    //e
 	syn1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*Theta
-	neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*V(w), V(w) = rangevec
+    neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*V(w), V(w) = rangevec
 	//in -> hidden     = V(a)
 	_ = *rangevec
 
@@ -291,9 +383,11 @@ func (p *TDoc2VecImpl) TrainPairSkipGram(centralwidx int32, rangevec *neuralnet.
 			syn1copy.Multiply(g)
 			neu1e.Add(syn1copy)
 			// Learn weights hidden -> output   Theta := Theta + gV(w)
-			copy(neu1copy, *rangevec)
-			neu1copy.Multiply(g)
-			syn1.Add(neu1copy)
+            if infer == false {
+                copy(neu1copy, *rangevec)
+                neu1copy.Multiply(g)
+                syn1.Add(neu1copy)
+            }
 		}
 	}
 
@@ -328,9 +422,11 @@ func (p *TDoc2VecImpl) TrainPairSkipGram(centralwidx int32, rangevec *neuralnet.
 			syn1copy.Multiply(g)
 			neu1e.Add(syn1copy)
 			// Learn weights hidden -> output   Theta := Theta + gV(w')
-			copy(neu1copy, *rangevec)
-			neu1copy.Multiply(g)
-			syn1neg.Add(neu1copy)
+            if infer == false {
+                copy(neu1copy, *rangevec)
+                neu1copy.Multiply(g)
+                syn1neg.Add(neu1copy)
+            }
 		}
 	}
 
@@ -338,12 +434,149 @@ func (p *TDoc2VecImpl) TrainPairSkipGram(centralwidx int32, rangevec *neuralnet.
 	rangevec.Add(neu1e)
 }
 
-func (p *TDoc2VecImpl) TrainSkipGram() {
+func (p *TDoc2VecImpl) trainSkipGram4Document(wordsidx []int32, dsyn0 * neuralnet.TVector, alpha float64, infer bool) {
+    for spos, widx := range wordsidx {
+        //随机窗口大小
+        b := p.getRandomWindowSize()
+        start := common.Max(0, spos-p.WindowSize+b)
+        end := common.Min(len(wordsidx), spos+p.WindowSize-b+1)
+        for a := start; a < end; a++ {
+            if a == spos {
+                continue
+            }
+            idx := wordsidx[a]
+            rangevec := p.NN.GetSyn0(idx)
+            p.trainSkipGram4Pair(widx, rangevec, alpha, infer)
+        }
+        //训练doc向量
+        p.trainSkipGram4Pair(widx, dsyn0, alpha, infer)
+    }
+}
+
+
+//dsyn0 由参数传入是为了方便在infer_doc的时候直接传入一个dvector来进行训练
+//infer=true的时候不对模型参数进行更新
+func (p *TDoc2VecImpl) trainCbow4Document(wordsidx []int32, dsyn0 * neuralnet.TVector, alpha float64, infer bool) {
+    for spos, widx := range wordsidx {
+        neu1 := make(neuralnet.TVector, p.Dim, p.Dim)     //X(w)
+        neu1e := make(neuralnet.TVector, p.Dim, p.Dim)    //e
+        syn1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*Theta
+        neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*X(w)
+        b := p.getRandomWindowSize()
+        start := common.Max(0, spos-p.WindowSize+b)
+        end := common.Min(len(wordsidx), spos+p.WindowSize-b+1)
+        //in -> hidden      X(widx) = E[V(a)]
+        cw := 0
+        for a := start; a < end; a++ {
+            if a == spos {
+                continue
+            }
+            idx := wordsidx[a]
+            neu1.Add(*p.NN.GetSyn0(idx))
+            cw++
+        }
+        //X(widx) += Document Vector
+        neu1.Add(*dsyn0)
+        cw++
+        neu1.Divide(float32(cw))
+
+        //Hierarchical Softmax
+        if p.UseHS {
+            //foreach inner node of words[widx]
+            worditem := p.Corpus.GetWordItemByIdx(int(widx))
+            for i, point := range worditem.Point {
+                syn1 := p.NN.GetSyn1(point) //Theta
+                // Propagate hidden -> output
+                f := neu1.Dot(*syn1) // f = Sigmoid[X(w) dot Theta]
+                g := 0.0             //g = alpha * (1 - Dj(w) - f)
+                if f >= MAX_EXP {
+                    f = 1.0
+                } else if f <= -MAX_EXP {
+                    f = 0.0
+                } else {
+                    f = GetSigmoidValue(f)
+                }
+                // 'g' is the gradient multiplied by the learning rate
+                label := 0.0
+                if worditem.Code[i] {
+                    label = 1.0
+                }
+                g = (1.0 - label - f) * alpha
+                // Propagate errors output -> hidden  e := e + g*Theta
+                copy(syn1copy, *syn1)
+                syn1copy.Multiply(g)
+                neu1e.Add(syn1copy)
+                // Learn weights hidden -> output   Theta := Theta + gX(w)
+                // when predict doc vector, infer=true, don't update Theta
+                if infer == false {
+                    copy(neu1copy, neu1)
+                    neu1copy.Multiply(g)
+                    syn1.Add(neu1copy)
+                }
+            }
+        }
+
+        //Negative Sampling
+        if p.UseNEG {
+            label := 0.0
+            var point int32 = 0
+            for i := 0; i < p.Negative+1; i++ {
+                if i == 0 {
+                    label = 1.0
+                    point = widx
+                } else {
+                    label = 0.0
+                    point = GetNegativeSamplingWordIdx()
+                    if point == widx {
+                        continue
+                    }
+                }
+                syn1neg := p.NN.GetSyn1Neg(point)
+                f := neu1.Dot(*syn1neg)
+                g := 0.0
+                if f >= MAX_EXP {
+                    f = 1.0
+                } else if f <= -MAX_EXP {
+                    f = 0.0
+                } else {
+                    f = GetSigmoidValue(f)
+                }
+                g = (label - f) * alpha
+                // Propagate errors output -> hidden  e := e + g*Theta
+                copy(syn1copy, *syn1neg)
+                syn1copy.Multiply(g)
+                neu1e.Add(syn1copy)
+                // Learn weights hidden -> output   Theta := Theta + gX(w)
+                if infer == false {
+                    copy(neu1copy, neu1)
+                    neu1copy.Multiply(g)
+                    syn1neg.Add(neu1copy)
+                }
+            }
+        }
+
+        // hidden -> in                         v(u) := v(u) + e
+        if infer == false {
+            for a := start; a < end; a++ {
+                if a == spos {
+                    continue
+                }
+                idx := wordsidx[a]
+                syn0 := p.NN.GetSyn0(idx)
+                syn0.Add(neu1e)
+            }
+        }
+        // hidden -> in                         D(u) := D(u) + e
+        dsyn0.Add(neu1e)
+    }
+}
+
+func (p *TDoc2VecImpl) trainSkipGram() {
 	// Skip-Gram  Model
 	tokens := make(chan struct{}, 32)
 	wg := new(sync.WaitGroup)
 	last_trained_words := 0
-	alpha := p.GetAlpha()
+	alpha := p.getTrainAlpha()
 	for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
 		docidx, wordsidx := docidx_, wordsidx_
 		wg.Add(1)
@@ -356,37 +589,22 @@ func (p *TDoc2VecImpl) TrainSkipGram() {
 			p.TrainedWords += len(wordsidx)
 			if last_trained_words > 10000 {
 				last_trained_words = 0
-				alpha = p.GetAlpha()
+				alpha = p.getTrainAlpha()
 			}
 			dsyn0 := p.NN.GetDSyn0(int32(docidx))
-			for spos, widx := range wordsidx {
-				//随机窗口大小
-				b := p.getRandomWindowSize()
-				start := common.Max(0, spos-p.WindowSize+b)
-				end := common.Min(len(wordsidx), spos+p.WindowSize-b+1)
-				for a := start; a < end; a++ {
-					if a == spos {
-						continue
-					}
-					idx := wordsidx[a]
-					rangevec := p.NN.GetSyn0(idx)
-					p.TrainPairSkipGram(widx, rangevec, alpha)
-				}
-				//训练doc向量
-				p.TrainPairSkipGram(widx, dsyn0, alpha)
-			}
+            p.trainSkipGram4Document(wordsidx, dsyn0, alpha, false)
 		}()
 	}
 	wg.Wait()
 }
 
 // P(w|Context(w))
-func (p *TDoc2VecImpl) TrainCbow() {
+func (p *TDoc2VecImpl) trainCbow() {
 	//Continuous Bag-of-Word Model
 	tokens := make(chan struct{}, 32)
 	wg := new(sync.WaitGroup)
 	last_trained_words := 0
-	alpha := p.GetAlpha()
+	alpha := p.getTrainAlpha()
 	for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
 		docidx, wordsidx := docidx_, wordsidx_
 		wg.Add(1)
@@ -399,114 +617,10 @@ func (p *TDoc2VecImpl) TrainCbow() {
 			p.TrainedWords += len(wordsidx)
 			if last_trained_words > 10000 {
 				last_trained_words = 0
-				alpha = p.GetAlpha()
+				alpha = p.getTrainAlpha()
 			}
-			for spos, widx := range wordsidx {
-				neu1 := make(neuralnet.TVector, p.Dim, p.Dim)     //X(w)
-				neu1e := make(neuralnet.TVector, p.Dim, p.Dim)    //e
-				syn1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*Theta
-				neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*X(w)
-				b := p.getRandomWindowSize()
-				start := common.Max(0, spos-p.WindowSize+b)
-				end := common.Min(len(wordsidx), spos+p.WindowSize-b+1)
-				//in -> hidden      X(widx) = E[V(a)]
-				cw := 0
-				for a := start; a < end; a++ {
-					if a == spos {
-						continue
-					}
-					idx := wordsidx[a]
-					neu1.Add(*p.NN.GetSyn0(idx))
-					cw++
-				}
-				//X(widx) += Document Vector
-				dsyn0 := p.NN.GetDSyn0(int32(docidx))
-				neu1.Add(*dsyn0)
-				cw++
-				neu1.Divide(float32(cw))
-
-				//Hierarchical Softmax
-				if p.UseHS {
-					//foreach inner node of words[widx]
-					worditem := p.Corpus.GetWordItemByIdx(int(widx))
-					for i, point := range worditem.Point {
-						syn1 := p.NN.GetSyn1(point) //Theta
-						// Propagate hidden -> output
-						f := neu1.Dot(*syn1) // f = Sigmoid[X(w) dot Theta]
-						g := 0.0             //g = alpha * (1 - Dj(w) - f)
-						if f >= MAX_EXP {
-							f = 1.0
-						} else if f <= -MAX_EXP {
-							f = 0.0
-						} else {
-							f = GetSigmoidValue(f)
-						}
-						// 'g' is the gradient multiplied by the learning rate
-						label := 0.0
-						if worditem.Code[i] {
-							label = 1.0
-						}
-						g = (1.0 - label - f) * alpha
-						// Propagate errors output -> hidden  e := e + g*Theta
-						copy(syn1copy, *syn1)
-						syn1copy.Multiply(g)
-						neu1e.Add(syn1copy)
-						// Learn weights hidden -> output   Theta := Theta + gX(w)
-						copy(neu1copy, neu1)
-						neu1copy.Multiply(g)
-						syn1.Add(neu1copy)
-					}
-				}
-
-				//Negative Sampling
-				if p.UseNEG {
-					label := 0.0
-					var point int32 = 0
-					for i := 0; i < p.Negative+1; i++ {
-						if i == 0 {
-							label = 1.0
-							point = widx
-						} else {
-							label = 0.0
-							point = GetNegativeSamplingWordIdx()
-							if point == widx {
-								continue
-							}
-						}
-						syn1neg := p.NN.GetSyn1Neg(point)
-						f := neu1.Dot(*syn1neg)
-						g := 0.0
-						if f >= MAX_EXP {
-							f = 1.0
-						} else if f <= -MAX_EXP {
-							f = 0.0
-						} else {
-							f = GetSigmoidValue(f)
-						}
-						g = (label - f) * alpha
-						// Propagate errors output -> hidden  e := e + g*Theta
-						copy(syn1copy, *syn1neg)
-						syn1copy.Multiply(g)
-						neu1e.Add(syn1copy)
-						// Learn weights hidden -> output   Theta := Theta + gX(w)
-						copy(neu1copy, neu1)
-						neu1copy.Multiply(g)
-						syn1neg.Add(neu1copy)
-					}
-				}
-
-				// hidden -> in                         v(u) := v(u) + e
-				for a := start; a < end; a++ {
-					if a == spos {
-						continue
-					}
-					idx := wordsidx[a]
-					syn0 := p.NN.GetSyn0(idx)
-					syn0.Add(neu1e)
-				}
-				// hidden -> in                         D(u) := D(u) + e
-				dsyn0.Add(neu1e)
-			}
+            dsyn0 := p.NN.GetDSyn0(int32(docidx))
+            p.trainCbow4Document(wordsidx, dsyn0, alpha, false)
 		}()
 	}
 	wg.Wait()

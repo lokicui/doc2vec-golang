@@ -24,6 +24,7 @@ type ICorpus interface {
 	GetAllDocWords() (doc [][]*TWordItem)
 	GetDocWordsByDocid(id string) (doc []*TWordItem)
 	GetDocWordsByIdx(i int) (doc []*TWordItem)
+    Transform(content string) (wordsidx []int32)
     msgp.Encodable
     msgp.Decodable
     msgp.Marshaler

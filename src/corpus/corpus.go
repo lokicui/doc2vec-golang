@@ -208,6 +208,17 @@ func (p *TCorpusImpl) loadAsWords(docid string, content string) int {
 	return len(items)
 }
 
+func (p *TCorpusImpl) Transform(content string) (wordsidx []int32) {
+	items := strings.Split(content, " ")
+	for _, word := range items {
+		idx, ok := p.Word2Idx[word]
+		if ok {
+			wordsidx = append(wordsidx, int32(idx))
+		}
+	}
+    return wordsidx
+}
+
 func (p *TCorpusImpl) loadAsDoc(docid string, content string) int {
 	items := strings.Split(content, " ")
 	wordsIdx := []int32{}
@@ -282,7 +293,7 @@ func (p *TCorpusImpl) sortVocab() {
 	p.Words = p.Words[:cnt]
 }
 
-func (p *TCorpusImpl) buildDocument(fname string) (err error) {
+func (p *TCorpusImpl) loadDocument(fname string) (err error) {
 	file, err := os.Open(fname)
 	if err != nil {
 		log.Fatal(err)
@@ -316,7 +327,7 @@ func (p *TCorpusImpl) Build(fname string) (err error) {
 	if err != nil {
 		return err
 	}
-	return p.buildDocument(fname)
+	return p.loadDocument(fname)
 }
 
 func NewCorpus() ICorpus {
