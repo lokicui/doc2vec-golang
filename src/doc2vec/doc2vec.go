@@ -15,6 +15,8 @@ import (
 	"sync"
 )
 
+var _ = sort.Sort
+
 const (
 	MAX_EXP                 float64 = 6
 	EXP_TABLE_SIZE          int     = 1000
@@ -115,7 +117,11 @@ func (p *TDoc2VecImpl) Train(fname string) {
 	}
 	p.NN = neuralnet.NewNN(p.Corpus.GetDocCnt(), p.Corpus.GetVocabCnt(), p.Dim, p.UseHS, p.UseNEG)
 	for i := 0; i < p.Iters; i++ {
-		p.TrainCbow()
+		if p.UseCbow {
+			p.TrainCbow()
+		} else {
+			p.TrainSkipGram()
+		}
 	}
 }
 
@@ -250,6 +256,131 @@ func (p *TDoc2VecImpl) GetAlpha() float64 {
 	return alpha
 }
 
+// P(V(centralwidx) | rangevec) foreach rangevec in Context(centralwidx)
+func (p *TDoc2VecImpl) TrainPairSkipGram(centralwidx int32, rangevec *neuralnet.TVector, alpha float64) {
+	neu1e := make(neuralnet.TVector, p.Dim, p.Dim)    //e
+	syn1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*Theta
+	neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*V(w), V(w) = rangevec
+	//in -> hidden     = V(a)
+	_ = *rangevec
+
+	//Hierarchical Softmax
+	if p.UseHS {
+		//foreach inner node of words[centralwidx]
+		worditem := p.Corpus.GetWordItemByIdx(int(centralwidx))
+		for i, point := range worditem.Point {
+			syn1 := p.NN.GetSyn1(point) //Theta
+			// Propagate hidden -> output
+			f := rangevec.Dot(*syn1) // f = Sigmoid[X(w) dot Theta]
+			g := 0.0                 //g = alpha * (1 - Dj(w) - f)
+			if f >= MAX_EXP {
+				f = 1.0
+			} else if f <= -MAX_EXP {
+				f = 0.0
+			} else {
+				f = GetSigmoidValue(f)
+			}
+			// 'g' is the gradient multiplied by the learning rate
+			label := 0.0
+			if worditem.Code[i] {
+				label = 1.0
+			}
+			g = (1.0 - label - f) * alpha
+			// Propagate errors output -> hidden  e := e + g*Theta
+			copy(syn1copy, *syn1)
+			syn1copy.Multiply(g)
+			neu1e.Add(syn1copy)
+			// Learn weights hidden -> output   Theta := Theta + gV(w)
+			copy(neu1copy, *rangevec)
+			neu1copy.Multiply(g)
+			syn1.Add(neu1copy)
+		}
+	}
+
+	//Negative Sampling
+	if p.UseNEG {
+		label := 0.0
+		var point int32 = 0
+		for i := 0; i < p.Negative+1; i++ {
+			if i == 0 {
+				label = 1.0
+				point = centralwidx
+			} else {
+				label = 0.0
+				point = GetNegativeSamplingWordIdx()
+				if point == centralwidx {
+					continue
+				}
+			}
+			syn1neg := p.NN.GetSyn1Neg(point)
+			f := rangevec.Dot(*syn1neg) // V(w') dot Theta(u),  u = {w} U NEG(w), w' = Context(w)
+			g := 0.0
+			if f >= MAX_EXP {
+				f = 1.0
+			} else if f <= -MAX_EXP {
+				f = 0.0
+			} else {
+				f = GetSigmoidValue(f)
+			}
+			g = (label - f) * alpha // (Lw(u) - q) * alpha
+			// Propagate errors output -> hidden  e := e + g*Theta(u)
+			copy(syn1copy, *syn1neg)
+			syn1copy.Multiply(g)
+			neu1e.Add(syn1copy)
+			// Learn weights hidden -> output   Theta := Theta + gV(w')
+			copy(neu1copy, *rangevec)
+			neu1copy.Multiply(g)
+			syn1neg.Add(neu1copy)
+		}
+	}
+
+	// hidden -> in                         v(u) := v(u) + e
+	rangevec.Add(neu1e)
+}
+
+func (p *TDoc2VecImpl) TrainSkipGram() {
+	// Skip-Gram  Model
+	tokens := make(chan struct{}, 32)
+	wg := new(sync.WaitGroup)
+	last_trained_words := 0
+	alpha := p.GetAlpha()
+	for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
+		docidx, wordsidx := docidx_, wordsidx_
+		wg.Add(1)
+		go func() {
+			defer func() { <-tokens }()
+			defer wg.Done()
+			tokens <- struct{}{}
+			//train one document
+			last_trained_words += len(wordsidx)
+			p.TrainedWords += len(wordsidx)
+			if last_trained_words > 10000 {
+				last_trained_words = 0
+				alpha = p.GetAlpha()
+			}
+			dsyn0 := p.NN.GetDSyn0(int32(docidx))
+			for spos, widx := range wordsidx {
+				//随机窗口大小
+				b := p.getRandomWindowSize()
+				start := common.Max(0, spos-p.WindowSize+b)
+				end := common.Min(len(wordsidx), spos+p.WindowSize-b+1)
+				for a := start; a < end; a++ {
+					if a == spos {
+						continue
+					}
+					idx := wordsidx[a]
+					rangevec := p.NN.GetSyn0(idx)
+					p.TrainPairSkipGram(widx, rangevec, alpha)
+				}
+				//训练doc向量
+				p.TrainPairSkipGram(widx, dsyn0, alpha)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// P(w|Context(w))
 func (p *TDoc2VecImpl) TrainCbow() {
 	//Continuous Bag-of-Word Model
 	tokens := make(chan struct{}, 32)
@@ -315,7 +446,7 @@ func (p *TDoc2VecImpl) TrainCbow() {
 						if worditem.Code[i] {
 							label = 1.0
 						}
-						g = (1.0 - label - f) * f * alpha
+						g = (1.0 - label - f) * alpha
 						// Propagate errors output -> hidden  e := e + g*Theta
 						copy(syn1copy, *syn1)
 						syn1copy.Multiply(g)
@@ -327,6 +458,7 @@ func (p *TDoc2VecImpl) TrainCbow() {
 					}
 				}
 
+				//Negative Sampling
 				if p.UseNEG {
 					label := 0.0
 					var point int32 = 0
@@ -394,8 +526,16 @@ func (p *TDoc2VecImpl) FindKNN(word string) {
 		dis_vector[i] = &SortItem{Idx: int32(i), Dis: dis}
 	}
 	//大爷的 go的排序太麻烦,还不如自己写个快排
-	//QuickSort(0, len(dis_vector) - 1, dis_vector)
-	sort.Sort(sort.Reverse(dis_vector))
+	//就不能学学好,跟python一样 sort(dis_vector, key=lambda item: item.key, reverse=True)
+	//都已经有接口了, 待排序的元素实现一个包含GetSortKey函数的接口, 就ok了,能省不少代码
+	QuickSort(0, len(dis_vector)-1, dis_vector)
+
+	//不用自己写的快排启用这一行也ok, golang 排序需要实现sort.Interface接口
+	//  共三个函数需要实现
+	//      1.  Len
+	//      2.  Less
+	//      3.  Swap
+	//sort.Sort(sort.Reverse(dis_vector))
 	fmt.Printf("word:%v\n", needle_worditem.Word)
 	for i := 0; i < len(dis_vector) && i < 10; i++ {
 		item := dis_vector[i]
@@ -407,12 +547,13 @@ func (p *TDoc2VecImpl) FindKNN(word string) {
 	fmt.Println()
 }
 
+//升序快排
 func QuickSort(i, j int, vec []*SortItem) {
 	ii, jj := i, j
 	if i+1 >= j {
 		return
 	} else if i+2 == j {
-		if vec[i].Dis > vec[j-1].Dis {
+		if vec[i].Dis < vec[j-1].Dis {
 			vec[i], vec[j-1] = vec[j-1], vec[i]
 		}
 	}
@@ -420,14 +561,14 @@ func QuickSort(i, j int, vec []*SortItem) {
 	stub := vec[M]
 	for i < j {
 		for ; j > i; j-- {
-			if vec[j].Dis < stub.Dis {
+			if vec[j].Dis > stub.Dis {
 				vec[M] = vec[j]
 				M = j
 				break
 			}
 		}
 		for ; i < j; i++ {
-			if vec[i].Dis > stub.Dis {
+			if vec[i].Dis < stub.Dis {
 				vec[M] = vec[i]
 				M = i
 				break
@@ -448,8 +589,4 @@ func ConsineDistance(a neuralnet.TVector, b neuralnet.TVector) (dis float64) {
 	}
 	dis = sum / math.Sqrt(sum_a) / math.Sqrt(sum_b)
 	return dis
-}
-
-func (p *TDoc2VecImpl) TrainHSSkipGram() {
-	//Skip-Gram Model + Hierarchical Softmax
 }
