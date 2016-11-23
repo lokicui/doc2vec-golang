@@ -1,15 +1,24 @@
 # doc2vec-golang
-golang implement of Tomas Mikolov's word/document embedding. You may want to feel the basic idea from Mikolov's two orignal papers, word2vec and doc2vec. More recently, Andrew M. Dai etc from Google reported its power in more detail
+golang implement of Tomas Mikolov's word/document embedding. You may want to feel the basic idea from Mikolov's two orignal papers, [word2vec](http://arxiv.org/pdf/1301.3781.pdf) and [doc2vec](http://cs.stanford.edu/~quocle/paragraph_vector.pdf). More recently, Andrew M. Dai etc from Google reported its power in more [detail](http://arxiv.org/pdf/1507.07998.pdf)
 
 # Dependencies
 * golang 
 * msgp 
 
-# Why did I rewrite it in golang?
-There are a few pretty nice projects like google's word2vec and gensim has already implemented the algorithm, from which I learned quite a lot. However, I rewrite it for following reasons:
+# 特性
+* doc2vec支持CBOW和Skip-Gram两种模型，Negative Sampling和Hierarchical Softmax优化均已实现
 
-* speed. I believe golang version has the best speed on CPU and i have a change to learn golang.
+# 未实现特性
+* online infer document
+* [likelihood of document](http://arxiv.org/abs/1504.07295)
+* [wmd](https://github.com/hiyijian/doc2vec/blob/master/jmlr.org/proceedings/papers/v37/kusnerb15.pdf)
+* [doc2vec添加同义词语义约束](http://home.ustc.edu.cn/~quanliu/papers/SWE.pdf)
+* doc2words
+* word2words
+* 句子提取核心词
 
-* functionality. I found few project implements both word and document embedding. Moreover, some important application for these embedding have not been fully developed, such as online infer document, likelihood of document, wmd and keyword extraction 
-
-* scalability. I found that it's extremely slow when doing task like "most similar" on large data. One straight-forward way is distributing, the other is putting on GPUs. For these purposes, I prefer to design data structrue by myself
+# 参考资料
+* google [word2vec](https://code.google.com/archive/p/word2vec/source/default/source) 实现
+* [hiyijian/doc2vec](https://github.com/hiyijian/doc2vec)
+* [word2vec语义约束](https://github.com/iunderstand/SWE)
+* [doc2vec添加同义词语义约束](http://home.ustc.edu.cn/~quanliu/papers/SWE.pdf)
