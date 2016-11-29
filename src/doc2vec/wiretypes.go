@@ -21,7 +21,12 @@ type IDoc2Vec interface {
 	GetNeuralNet() neuralnet.INeuralNet
 	SaveModel(fname string) (err error)
 	LoadModel(fname string) (err error)
-	FindKNN(word string)
+    Word2Words(word string)
+    Word2Docs(word string)
+    Doc2Words(content string, iters int)
+    Doc2Docs(content string, iters int)
+    GetLikelihood4Doc(context string) (likelihood float64)
+    GetLeaveOneOutKwds(content string, iters int)
 }
 
 type TDoc2VecImpl struct {

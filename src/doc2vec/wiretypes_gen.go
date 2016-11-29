@@ -143,6 +143,21 @@ func (z *TDoc2VecImpl) DecodeMsg(dc *msgp.Reader) (err error) {
 			if err != nil {
 				return
 			}
+		case "Dim":
+			z.Dim, err = dc.ReadInt()
+			if err != nil {
+				return
+			}
+		case "UseCbow":
+			z.UseCbow, err = dc.ReadBool()
+			if err != nil {
+				return
+			}
+		case "WindowSize":
+			z.WindowSize, err = dc.ReadInt()
+			if err != nil {
+				return
+			}
 		case "UseHS":
 			z.UseHS, err = dc.ReadBool()
 			if err != nil {
@@ -153,13 +168,8 @@ func (z *TDoc2VecImpl) DecodeMsg(dc *msgp.Reader) (err error) {
 			if err != nil {
 				return
 			}
-		case "Dim":
-			z.Dim, err = dc.ReadInt()
-			if err != nil {
-				return
-			}
-		case "WindowSize":
-			z.WindowSize, err = dc.ReadInt()
+		case "Negative":
+			z.Negative, err = dc.ReadInt()
 			if err != nil {
 				return
 			}
@@ -200,13 +210,40 @@ func (z *TDoc2VecImpl) DecodeMsg(dc *msgp.Reader) (err error) {
 
 // EncodeMsg implements msgp.Encodable
 func (z *TDoc2VecImpl) EncodeMsg(en *msgp.Writer) (err error) {
-	// map header, size 10
+	// map header, size 12
 	// write "Trainfile"
-	err = en.Append(0x8a, 0xa9, 0x54, 0x72, 0x61, 0x69, 0x6e, 0x66, 0x69, 0x6c, 0x65)
+	err = en.Append(0x8c, 0xa9, 0x54, 0x72, 0x61, 0x69, 0x6e, 0x66, 0x69, 0x6c, 0x65)
 	if err != nil {
 		return err
 	}
 	err = en.WriteString(z.Trainfile)
+	if err != nil {
+		return
+	}
+	// write "Dim"
+	err = en.Append(0xa3, 0x44, 0x69, 0x6d)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt(z.Dim)
+	if err != nil {
+		return
+	}
+	// write "UseCbow"
+	err = en.Append(0xa7, 0x55, 0x73, 0x65, 0x43, 0x62, 0x6f, 0x77)
+	if err != nil {
+		return err
+	}
+	err = en.WriteBool(z.UseCbow)
+	if err != nil {
+		return
+	}
+	// write "WindowSize"
+	err = en.Append(0xaa, 0x57, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x53, 0x69, 0x7a, 0x65)
+	if err != nil {
+		return err
+	}
+	err = en.WriteInt(z.WindowSize)
 	if err != nil {
 		return
 	}
@@ -228,21 +265,12 @@ func (z *TDoc2VecImpl) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
-	// write "Dim"
-	err = en.Append(0xa3, 0x44, 0x69, 0x6d)
+	// write "Negative"
+	err = en.Append(0xa8, 0x4e, 0x65, 0x67, 0x61, 0x74, 0x69, 0x76, 0x65)
 	if err != nil {
 		return err
 	}
-	err = en.WriteInt(z.Dim)
-	if err != nil {
-		return
-	}
-	// write "WindowSize"
-	err = en.Append(0xaa, 0x57, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x53, 0x69, 0x7a, 0x65)
-	if err != nil {
-		return err
-	}
-	err = en.WriteInt(z.WindowSize)
+	err = en.WriteInt(z.Negative)
 	if err != nil {
 		return
 	}
@@ -297,22 +325,28 @@ func (z *TDoc2VecImpl) EncodeMsg(en *msgp.Writer) (err error) {
 // MarshalMsg implements msgp.Marshaler
 func (z *TDoc2VecImpl) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 10
+	// map header, size 12
 	// string "Trainfile"
-	o = append(o, 0x8a, 0xa9, 0x54, 0x72, 0x61, 0x69, 0x6e, 0x66, 0x69, 0x6c, 0x65)
+	o = append(o, 0x8c, 0xa9, 0x54, 0x72, 0x61, 0x69, 0x6e, 0x66, 0x69, 0x6c, 0x65)
 	o = msgp.AppendString(o, z.Trainfile)
+	// string "Dim"
+	o = append(o, 0xa3, 0x44, 0x69, 0x6d)
+	o = msgp.AppendInt(o, z.Dim)
+	// string "UseCbow"
+	o = append(o, 0xa7, 0x55, 0x73, 0x65, 0x43, 0x62, 0x6f, 0x77)
+	o = msgp.AppendBool(o, z.UseCbow)
+	// string "WindowSize"
+	o = append(o, 0xaa, 0x57, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x53, 0x69, 0x7a, 0x65)
+	o = msgp.AppendInt(o, z.WindowSize)
 	// string "UseHS"
 	o = append(o, 0xa5, 0x55, 0x73, 0x65, 0x48, 0x53)
 	o = msgp.AppendBool(o, z.UseHS)
 	// string "UseNEG"
 	o = append(o, 0xa6, 0x55, 0x73, 0x65, 0x4e, 0x45, 0x47)
 	o = msgp.AppendBool(o, z.UseNEG)
-	// string "Dim"
-	o = append(o, 0xa3, 0x44, 0x69, 0x6d)
-	o = msgp.AppendInt(o, z.Dim)
-	// string "WindowSize"
-	o = append(o, 0xaa, 0x57, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x53, 0x69, 0x7a, 0x65)
-	o = msgp.AppendInt(o, z.WindowSize)
+	// string "Negative"
+	o = append(o, 0xa8, 0x4e, 0x65, 0x67, 0x61, 0x74, 0x69, 0x76, 0x65)
+	o = msgp.AppendInt(o, z.Negative)
 	// string "StartAlpha"
 	o = append(o, 0xaa, 0x53, 0x74, 0x61, 0x72, 0x74, 0x41, 0x6c, 0x70, 0x68, 0x61)
 	o = msgp.AppendFloat64(o, z.StartAlpha)
@@ -358,6 +392,21 @@ func (z *TDoc2VecImpl) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			if err != nil {
 				return
 			}
+		case "Dim":
+			z.Dim, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				return
+			}
+		case "UseCbow":
+			z.UseCbow, bts, err = msgp.ReadBoolBytes(bts)
+			if err != nil {
+				return
+			}
+		case "WindowSize":
+			z.WindowSize, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				return
+			}
 		case "UseHS":
 			z.UseHS, bts, err = msgp.ReadBoolBytes(bts)
 			if err != nil {
@@ -368,13 +417,8 @@ func (z *TDoc2VecImpl) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			if err != nil {
 				return
 			}
-		case "Dim":
-			z.Dim, bts, err = msgp.ReadIntBytes(bts)
-			if err != nil {
-				return
-			}
-		case "WindowSize":
-			z.WindowSize, bts, err = msgp.ReadIntBytes(bts)
+		case "Negative":
+			z.Negative, bts, err = msgp.ReadIntBytes(bts)
 			if err != nil {
 				return
 			}
@@ -416,7 +460,7 @@ func (z *TDoc2VecImpl) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *TDoc2VecImpl) Msgsize() (s int) {
-	s = 1 + 10 + msgp.StringPrefixSize + len(z.Trainfile) + 6 + msgp.BoolSize + 7 + msgp.BoolSize + 4 + msgp.IntSize + 11 + msgp.IntSize + 11 + msgp.Float64Size + 6 + msgp.IntSize + 13 + msgp.IntSize + 7 + z.Corpus.Msgsize() + 3 + z.NN.Msgsize()
+	s = 1 + 10 + msgp.StringPrefixSize + len(z.Trainfile) + 4 + msgp.IntSize + 8 + msgp.BoolSize + 11 + msgp.IntSize + 6 + msgp.BoolSize + 7 + msgp.BoolSize + 9 + msgp.IntSize + 11 + msgp.Float64Size + 6 + msgp.IntSize + 13 + msgp.IntSize + 7 + z.Corpus.Msgsize() + 3 + z.NN.Msgsize()
 	return
 }
 

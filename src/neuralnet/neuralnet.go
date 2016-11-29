@@ -9,7 +9,6 @@ var gNextRandom uint64 = 1
 func init() {
 }
 
-
 //向量加法
 func (p TVector) Add(a TVector) {
 	if len(p) != len(a) {
@@ -44,20 +43,20 @@ func (p TVector) Multiply(a float64) {
 	}
 }
 
-
 func (p *TNeuralNetImpl) GetSyn0(i int32) *TVector {
 	return &p.Syn0[int(i)]
 }
 func (p *TNeuralNetImpl) GetDSyn0(i int32) *TVector {
 	return &p.Dsyn0[int(i)]
 }
-func (p *TNeuralNetImpl) NewDSyn0() * TVector {
-    dim := len(*p.GetDSyn0(0))
-    self :=  p.getRandomVector(dim)
-    return &self
+func (p *TNeuralNetImpl) NewDSyn0() *TVector {
+	dim := len(*p.GetDSyn0(0))
+	self := p.getRandomVector(dim)
+	return &self
 }
 func (p *TNeuralNetImpl) GetSyn1(i int32) *TVector {
-	return &p.Syn1[int(i)]
+	r := &p.Syn1[int(i)]
+	return r
 }
 func (p *TNeuralNetImpl) GetSyn1Neg(i int32) *TVector {
 	return &p.Syn1neg[int(i)]

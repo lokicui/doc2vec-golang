@@ -77,28 +77,50 @@ func (p *TCorpusImpl) createBinaryTree() {
 	for i := 0; i < vocab_size; i++ {
 		code := make([]bool, 0, 40)
 		point := make([]int32, 0, 40)
-		ii := int32(i)
-		for true {
-			point = append(point, int32(ii))
-			code = append(code, binary[ii])
-			p := parent[ii]
-			if p == root {
-				break
+		for p := int32(i); p != root; p = parent[p] {
+			if p >= int32(vocab_size) {
+				point = append(point, p-int32(vocab_size)) //转换为syn1的下标
+			} else {
+				//NOTE 叶子节点、HS训练的时候不需要, HS的Point只需要[root, leaf)
+				//point = append(point, p)
 			}
-			ii = p
+			code = append(code, binary[p])
 		}
-		//code point reverse
-		reverse_code := make([]bool, 0, len(code))
-		for j := len(code) - 1; j >= 0; j-- {
-			reverse_code = append(reverse_code, code[j])
+		point = append(point, root-int32(vocab_size))
+
+		reverse_point := make([]int32, len(point), len(point))
+		for j := 0; j < len(point); j++ {
+			reverse_point[len(point)-1-j] = point[j]
 		}
-		reverse_point := make([]int32, 0, len(point))
-		//root node index
-		reverse_point = append(reverse_point, root-int32(vocab_size)) // 加上root, 减去vocab_size后直接表示syn1中的下标了
-		for j := len(point) - 1; j > 0; j-- {                         //NOTE  j != 0, j == 0是叶子节点、HS训练的时候不需要了, HS的Point只需要[root, leaf)
-			syn1idx := point[j] - int32(vocab_size)
-			reverse_point = append(reverse_point, syn1idx)
+
+		reverse_code := make([]bool, len(code), len(code))
+		for j := 0; j < len(code); j++ {
+			reverse_code[len(code)-1-j] = code[j]
 		}
+
+		//////////////////
+		//ii := int32(i)
+		//for true {
+		//	point = append(point, int32(ii))
+		//	code = append(code, binary[ii])
+		//	p := parent[ii]
+		//	if p == root {
+		//		break
+		//	}
+		//	ii = p
+		//}
+		////code point reverse
+		//reverse_code := make([]bool, 0, len(code))
+		//for j := len(code) - 1; j >= 0; j-- {
+		//	reverse_code = append(reverse_code, code[j])
+		//}
+		//reverse_point := make([]int32, 0, len(point))
+		////root node index
+		//reverse_point = append(reverse_point, root-int32(vocab_size)) // 加上root, 减去vocab_size后直接表示syn1中的下标了
+		//for j := len(point) - 1; j > 0; j-- {                         //NOTE  j != 0, j == 0是叶子节点、HS训练的时候不需要了, HS的Point只需要[root, leaf)
+		//	syn1idx := point[j] - int32(vocab_size)
+		//	reverse_point = append(reverse_point, syn1idx)
+		//}
 		//(root->leaf]
 		p.Words[i].Code = reverse_code
 		p.Words[i].Point = reverse_point
@@ -186,9 +208,12 @@ func (p *TCorpusImpl) reduceVocabulary() {
 }
 
 func (p *TCorpusImpl) addWord(word string) (err error) {
+	if len(word) == 0 {
+		return err
+	}
 	idx, ok := p.Word2Idx[word]
 	if !ok {
-		item := TWordItem{Word: word}
+		item := TWordItem{Word: word, Cnt: 0}
 		idx = int32(len(p.Words))
 		p.Words = append(p.Words, item)
 		p.Word2Idx[word] = idx
@@ -216,7 +241,7 @@ func (p *TCorpusImpl) Transform(content string) (wordsidx []int32) {
 			wordsidx = append(wordsidx, int32(idx))
 		}
 	}
-    return wordsidx
+	return wordsidx
 }
 
 func (p *TCorpusImpl) loadAsDoc(docid string, content string) int {
@@ -247,7 +272,7 @@ func (p *TCorpusImpl) buildVocabulary(fname string) (err error) {
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer([]byte{}, bufio.MaxScanTokenSize*10)
+	scanner.Buffer([]byte{}, bufio.MaxScanTokenSize*100)
 	train_words := 0
 	batch := 0
 	for scanner.Scan() {
@@ -278,19 +303,19 @@ func (p *TCorpusImpl) sortVocab() {
 	//先排序
 	// Words occuring less than min_count times will be discarded from the vocab
 	p.Word2Idx = map[string]int32{}
-	var cnt int32 = 0
 	sort.Sort(sort.Reverse(p.Words))
 
 	p.WordsCnt = 0
+	var idx int32 = 0
 	for _, item := range p.Words {
 		if item.Cnt > p.MinCnt {
-			p.Words[cnt] = item
-			p.Word2Idx[item.Word] = cnt
-			p.WordsCnt += int(cnt)
-			cnt++
+			p.Words[idx] = item
+			p.Word2Idx[item.Word] = idx
+			p.WordsCnt += int(item.Cnt)
+			idx++
 		}
 	}
-	p.Words = p.Words[:cnt]
+	p.Words = p.Words[:idx]
 }
 
 func (p *TCorpusImpl) loadDocument(fname string) (err error) {
@@ -300,7 +325,7 @@ func (p *TCorpusImpl) loadDocument(fname string) (err error) {
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer([]byte{}, bufio.MaxScanTokenSize*10)
+	scanner.Buffer([]byte{}, bufio.MaxScanTokenSize*100)
 	train_docs := 0
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -310,6 +335,11 @@ func (p *TCorpusImpl) loadDocument(fname string) (err error) {
 			continue
 		}
 		docid, content := items[0], items[1]
+		docid = strings.Trim(docid, " \n")
+		content = strings.Trim(content, " \n")
+		if len(content) == 0 || len(docid) == 0 {
+			continue
+		}
 		cnt := p.loadAsDoc(docid, content)
 		train_docs += cnt
 		if train_docs%10000 == 0 {
@@ -334,6 +364,6 @@ func NewCorpus() ICorpus {
 	self := &TCorpusImpl{
 		Word2Idx: make(map[string]int32),
 		Doc2Idx:  make(map[string]int32),
-		MinCnt:  10}
+		MinCnt:   0}
 	return ICorpus(self)
 }
