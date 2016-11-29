@@ -9,12 +9,14 @@ golang implement of Tomas Mikolov's word/document embedding. You may want to fee
 * doc2vec支持CBOW和Skip-Gram两种模型，Negative Sampling和Hierarchical Softmax优化均已实现
 * online infer document
 * [likelihood of document](http://arxiv.org/abs/1504.07295)
+* doc2words
+* doc2docs
+* word2words
+* word2docs
 
 # 未实现特性
 * [wmd](https://github.com/hiyijian/doc2vec/blob/master/jmlr.org/proceedings/papers/v37/kusnerb15.pdf)
 * [doc2vec添加同义词语义约束](http://home.ustc.edu.cn/~quanliu/papers/SWE.pdf)
-* doc2words
-* word2words
 * 句子提取核心词
 
 # 参考资料
