@@ -743,12 +743,42 @@ func (p *TDoc2VecImpl) Word2Words(word string) {
 	p.findKNNWordsByVector(vector)
 }
 
-func (p *TDoc2VecImpl) Doc2Words(content string, iters int) {
+func (p *TDoc2VecImpl) Sen2Words(content string, iters int) {
 	vector := p.FitDoc(content, iters)
 	p.findKNNWordsByVector(vector)
 }
 
-func (p *TDoc2VecImpl) Doc2Docs(content string, iters int) {
+func (p *TDoc2VecImpl) Doc2Words(docidx int) {
+    if docidx < 0 || docidx > p.Corpus.GetDocCnt() {
+        return
+    }
+	vector := p.NN.GetDSyn0(int32(docidx))
+    worditems := p.Corpus.GetDocWordsByIdx(docidx)
+    words := []string{}
+    for _, item := range worditems {
+        words = append(words, item.Word)
+    }
+    content := strings.Join(words, " ")
+    fmt.Println(content)
+	p.findKNNWordsByVector(vector)
+}
+
+func (p *TDoc2VecImpl) Doc2Docs(docidx int) {
+    if docidx < 0 || docidx > p.Corpus.GetDocCnt() {
+        return
+    }
+	vector := p.NN.GetDSyn0(int32(docidx))
+    worditems := p.Corpus.GetDocWordsByIdx(docidx)
+    words := []string{}
+    for _, item := range worditems {
+        words = append(words, item.Word)
+    }
+    content := strings.Join(words, " ")
+    fmt.Println(content)
+	p.findKNNDocsByVector(vector)
+}
+
+func (p *TDoc2VecImpl) Sen2Docs(content string, iters int) {
 	vector := p.FitDoc(content, iters)
 	p.findKNNDocsByVector(vector)
 }

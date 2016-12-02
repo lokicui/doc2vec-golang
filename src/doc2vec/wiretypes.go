@@ -23,8 +23,10 @@ type IDoc2Vec interface {
 	LoadModel(fname string) (err error)
     Word2Words(word string)
     Word2Docs(word string)
-    Doc2Words(content string, iters int)
-    Doc2Docs(content string, iters int)
+    Sen2Words(content string, iters int)
+    Sen2Docs(content string, iters int)
+    Doc2Docs(docidx int)
+    Doc2Words(docidx int)
     GetLikelihood4Doc(context string) (likelihood float64)
     GetLeaveOneOutKwds(content string, iters int)
 }
