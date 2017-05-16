@@ -47,6 +47,9 @@ func (p *TNeuralNetImpl) GetSyn0(i int32) *TVector {
 	return &p.Syn0[int(i)]
 }
 func (p *TNeuralNetImpl) GetDSyn0(i int32) *TVector {
+    if int(i) > len(p.Dsyn0) {
+        log.Fatal("i out of range", i, len(p.Dsyn0))
+    }
 	return &p.Dsyn0[int(i)]
 }
 func (p *TNeuralNetImpl) NewDSyn0() *TVector {
