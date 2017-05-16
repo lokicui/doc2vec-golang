@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
-	"github.com/lokicui/doc2vec-golang/doc2vec"
 	"fmt"
+	"github.com/lokicui/doc2vec-golang/doc2vec"
 	"log"
 	"os"
+	"strconv"
 	"strings"
-    "strconv"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func main() {
 	}
 	for true {
 		reader := bufio.NewReader(os.Stdin)
-        fmt.Println("please select operation type:\n\t0:word2words\n\t1:doc_likelihood\n\t2:leave one out key words\n\t3:sen2words\n\t4:sen2docs\n\t5:word2docs\n\t6:doc2docs\n\t7:doc2words\n\t")
+		fmt.Println("please select operation type:\n\t0:word2words\n\t1:doc_likelihood\n\t2:leave one out key words\n\t3:sen2words\n\t4:sen2docs\n\t5:word2docs\n\t6:doc2docs\n\t7:doc2words\n\t")
 		text, _ := reader.ReadString('\n')
 		text = strings.Trim(text, "\n")
 		switch text {
@@ -51,12 +51,12 @@ func main() {
 		case "6":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')
-            idx, _ := strconv.Atoi(strings.Trim(text, "\n"))
+			idx, _ := strconv.Atoi(strings.Trim(text, "\n"))
 			d2v.Doc2Docs(idx)
 		case "7":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')
-            idx, _ := strconv.Atoi(strings.Trim(text, "\n"))
+			idx, _ := strconv.Atoi(strings.Trim(text, "\n"))
 			d2v.Doc2Words(idx)
 		}
 	}

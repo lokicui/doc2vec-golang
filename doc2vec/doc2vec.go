@@ -2,14 +2,14 @@ package doc2vec
 
 import (
 	"bytes"
-	"github.com/lokicui/doc2vec-golang/common"
-	"github.com/lokicui/doc2vec-golang/corpus"
 	"encoding/binary"
 	"fmt"
+	"github.com/lokicui/doc2vec-golang/common"
+	"github.com/lokicui/doc2vec-golang/corpus"
+	"github.com/lokicui/doc2vec-golang/neuralnet"
 	"github.com/tinylib/msgp/msgp"
 	"log"
 	"math"
-	"github.com/lokicui/doc2vec-golang/neuralnet"
 	"os"
 	"sort"
 	"strings"
@@ -749,32 +749,32 @@ func (p *TDoc2VecImpl) Sen2Words(content string, iters int) {
 }
 
 func (p *TDoc2VecImpl) Doc2Words(docidx int) {
-    if docidx < 0 || docidx > p.Corpus.GetDocCnt() {
-        return
-    }
+	if docidx < 0 || docidx > p.Corpus.GetDocCnt() {
+		return
+	}
 	vector := p.NN.GetDSyn0(int32(docidx))
-    worditems := p.Corpus.GetDocWordsByIdx(docidx)
-    words := []string{}
-    for _, item := range worditems {
-        words = append(words, item.Word)
-    }
-    content := strings.Join(words, " ")
-    fmt.Println(content)
+	worditems := p.Corpus.GetDocWordsByIdx(docidx)
+	words := []string{}
+	for _, item := range worditems {
+		words = append(words, item.Word)
+	}
+	content := strings.Join(words, " ")
+	fmt.Println(content)
 	p.findKNNWordsByVector(vector)
 }
 
 func (p *TDoc2VecImpl) Doc2Docs(docidx int) {
-    if docidx < 0 || docidx > p.Corpus.GetDocCnt() {
-        return
-    }
+	if docidx < 0 || docidx > p.Corpus.GetDocCnt() {
+		return
+	}
 	vector := p.NN.GetDSyn0(int32(docidx))
-    worditems := p.Corpus.GetDocWordsByIdx(docidx)
-    words := []string{}
-    for _, item := range worditems {
-        words = append(words, item.Word)
-    }
-    content := strings.Join(words, " ")
-    fmt.Println(content)
+	worditems := p.Corpus.GetDocWordsByIdx(docidx)
+	words := []string{}
+	for _, item := range worditems {
+		words = append(words, item.Word)
+	}
+	content := strings.Join(words, " ")
+	fmt.Println(content)
 	p.findKNNDocsByVector(vector)
 }
 
