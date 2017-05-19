@@ -101,7 +101,14 @@ func NewDoc2Vec(useCbow, useHS, useNEG bool, windowSize, dim, iters int) IDoc2Ve
 		NN:         neuralnet.NewNN(0, 0, 0, false, false),
 		StartAlpha: common.If(useCbow, 0.05, 0.025).(float64),
 		Iters:      iters,
+        Pool:       nil,
 	}
+    self.Pool = &sync.Pool{
+        New: func() interface{} {
+            vector := make(neuralnet.TVector, self.Dim, self.Dim)
+            return &vector
+        },
+    }
 	return IDoc2Vec(self)
 }
 
@@ -479,12 +486,29 @@ func (p *TDoc2VecImpl) trainSkipGram4Document(wordsidx []int32, dsyn0 *neuralnet
 
 //dsyn0 由参数传入是为了方便在infer_doc的时候直接传入一个dvector来进行训练
 //infer=true的时候不对模型参数进行更新
+
 func (p *TDoc2VecImpl) trainCbow4Document(wordsidx []int32, dsyn0 *neuralnet.TVector, alpha float64, infer bool) {
+    //neu1 := make(neuralnet.TVector, p.Dim, p.Dim)     //X(w)
+    //neu1e := make(neuralnet.TVector, p.Dim, p.Dim)    //e
+    //syn1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*Theta
+    //neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*X(w)
+
+    // 使用内存池来降低GC的压力
+    neu1 := *(p.Pool.Get().(*neuralnet.TVector))
+    neu1e := *(p.Pool.Get().(*neuralnet.TVector))
+    syn1copy := *(p.Pool.Get().(*neuralnet.TVector))
+    neu1copy := *(p.Pool.Get().(*neuralnet.TVector))
+
+    defer func(){ p.Pool.Put(&neu1) }()
+    defer func(){ p.Pool.Put(&neu1e) }()
+    defer func(){ p.Pool.Put(&syn1copy) }()
+    defer func(){ p.Pool.Put(&neu1copy) }()
+
 	for spos, widx := range wordsidx {
-		neu1 := make(neuralnet.TVector, p.Dim, p.Dim)     //X(w)
-		neu1e := make(neuralnet.TVector, p.Dim, p.Dim)    //e
-		syn1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*Theta
-		neu1copy := make(neuralnet.TVector, p.Dim, p.Dim) //为了计算 g*X(w)
+        neu1.Reset()
+        neu1e.Reset()
+        syn1copy.Reset()
+        neu1copy.Reset()
 		b := p.getRandomWindowSize()
 		if infer {
 			b = 0
@@ -612,11 +636,11 @@ func (p *TDoc2VecImpl) trainSkipGram() {
 		wg := new(sync.WaitGroup)
 		for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
 			docidx, wordsidx := docidx_, wordsidx_
+            tokens <- struct{}{}
 			wg.Add(1)
 			go func() {
 				defer func() { <-tokens }()
 				defer wg.Done()
-				tokens <- struct{}{}
 				//train one document
 				last_trained_words += len(wordsidx)
 				p.TrainedWords += len(wordsidx)
@@ -647,11 +671,11 @@ func (p *TDoc2VecImpl) trainCbow() {
 		wg := new(sync.WaitGroup)
 		for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
 			docidx, wordsidx := docidx_, wordsidx_
+            tokens <- struct{}{}
 			wg.Add(1)
 			go func() {
 				defer func() { <-tokens }()
 				defer wg.Done()
-				tokens <- struct{}{}
 				//train one document
 				last_trained_words += len(wordsidx)
 				p.TrainedWords += len(wordsidx)

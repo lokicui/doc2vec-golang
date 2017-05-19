@@ -9,6 +9,11 @@ var gNextRandom uint64 = 1
 func init() {
 }
 
+func (p TVector) Reset() {
+	for i := 0; i < len(p); i++ {
+        p[i] = 0
+    }
+}
 //向量加法
 func (p TVector) Add(a TVector) {
 	if len(p) != len(a) {

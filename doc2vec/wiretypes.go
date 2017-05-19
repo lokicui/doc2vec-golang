@@ -3,6 +3,7 @@ package doc2vec
 import (
 	"github.com/lokicui/doc2vec-golang/corpus"
 	"github.com/lokicui/doc2vec-golang/neuralnet"
+    "sync"
 )
 
 //go:generate msgp
@@ -43,4 +44,5 @@ type TDoc2VecImpl struct {
 	TrainedWords int
 	Corpus       corpus.ICorpus
 	NN           neuralnet.INeuralNet
+    Pool         *sync.Pool
 }

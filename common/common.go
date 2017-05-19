@@ -6,7 +6,7 @@ import (
 
 //全角->半角
 func SBC2DBC(s string) string {
-    r := [] string {}
+    r := make([]string, 0, len(s))
     for _, i := range s {
         inside_code := i
         if inside_code == 0x3000 {
@@ -21,7 +21,7 @@ func SBC2DBC(s string) string {
 
 //半角->全角
 func DBC2SBC(s string) string {
-    r := [] string {}
+    r := make([]string, 0, len(s))
     for _, i := range s {
         inside_code := i
         if inside_code == 0x20 {
