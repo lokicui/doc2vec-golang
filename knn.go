@@ -4,11 +4,28 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/lokicui/doc2vec-golang/doc2vec"
+    "github.com/lokicui/doc-sim-cal/utils"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 )
+
+func get_segmented_query(text string) string {
+    qItems, err := utils.SegmentQuery(text, false)
+    if err != nil {
+        return ""
+    }
+    if len(qItems) == 0 {
+        return ""
+    }
+    qWords := []string{}
+    for _, item := range qItems {
+        word := utils.SBC2DBC(item.Word)
+        qWords = append(qWords, word)
+    }
+    return strings.Join(qWords, " ")
+}
 
 func main() {
 	fname := os.Args[1]
@@ -30,20 +47,20 @@ func main() {
 		case "1":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')
-			likelihood := d2v.GetLikelihood4Doc(strings.Trim(text, "\n"))
+			likelihood := d2v.GetLikelihood4Doc(get_segmented_query(strings.Trim(text, "\n")))
 			fmt.Printf("%v\t%v\n", text, likelihood)
 		case "2":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')
-			d2v.GetLeaveOneOutKwds(strings.Trim(text, "\n"), 50)
+			d2v.GetLeaveOneOutKwds(get_segmented_query(strings.Trim(text, "\n")), 50)
 		case "3":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')
-			d2v.Sen2Words(strings.Trim(text, "\n"), 50)
+			d2v.Sen2Words(get_segmented_query(strings.Trim(text, "\n")), 50)
 		case "4":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')
-			d2v.Sen2Docs(strings.Trim(text, "\n"), 50)
+			d2v.Sen2Docs(get_segmented_query(strings.Trim(text, "\n")), 50)
 		case "5":
 			fmt.Printf("Enter text:")
 			text, _ = reader.ReadString('\n')

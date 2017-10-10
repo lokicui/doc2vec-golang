@@ -29,6 +29,7 @@ type IDoc2Vec interface {
 	Doc2Words(docidx int)
 	GetLikelihood4Doc(context string) (likelihood float64)
 	GetLeaveOneOutKwds(content string, iters int)
+    DocSimCal(content1 string, content2 string) (dis float64)
 }
 
 type TDoc2VecImpl struct {

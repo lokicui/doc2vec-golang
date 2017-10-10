@@ -190,6 +190,41 @@ func (p *TDoc2VecImpl) GetLikelihood4Doc(context string) (likelihood float64) {
 	return likelihood
 }
 
+func (p *TDoc2VecImpl) DocSimCal(content1 string, content2 string) (sim float64) {
+	wordsidx1 := p.Corpus.Transform(content1)
+	wordsidx2 := p.Corpus.Transform(content2)
+    uniq_words_to_offset := map[int32]int{}
+    for _, idx := range wordsidx1 {
+        if _, ok := uniq_words_to_offset[idx]; !ok {
+            uniq_words_to_offset[idx] = len(uniq_words_to_offset)
+        }
+    }
+    for _, idx := range wordsidx2 {
+        if _, ok := uniq_words_to_offset[idx]; !ok {
+            uniq_words_to_offset[idx] = len(uniq_words_to_offset)
+        }
+    }
+    bow_v1 := make(neuralnet.TVector, len(uniq_words_to_offset), len(uniq_words_to_offset))
+    bow_v2 := make(neuralnet.TVector, len(uniq_words_to_offset), len(uniq_words_to_offset))
+    for _, idx1 := range wordsidx1 {
+        vec1 := p.NN.GetSyn0(idx1)
+        offset1 := uniq_words_to_offset[idx1]
+        for _, idx2 := range wordsidx2 {
+            offset2 := uniq_words_to_offset[idx2]
+            vec2 := p.NN.GetSyn0(idx2)
+            sim := float32(cosineSimilarity(*vec1, *vec2))
+            if bow_v1[offset1] < sim {
+                bow_v1[offset1] = sim
+            }
+            if bow_v2[offset2] < sim {
+                bow_v2[offset2] = sim
+            }
+        }
+    }
+    sim = cosineSimilarity(bow_v1, bow_v2)
+    return
+}
+
 //online fit doc vector
 func (p *TDoc2VecImpl) fitDoc(wordsidx []int32, iters int) (dsyn0 *neuralnet.TVector) {
 	dsyn0 = p.NN.NewDSyn0()
@@ -708,7 +743,7 @@ func (p *TDoc2VecImpl) GetLeaveOneOutKwds(content string, iters int) {
 			loowordsidx = append(loowordsidx, idx)
 		}
 		vec2 := p.fitDoc(loowordsidx, iters)
-		dis := ConsineDistance(*vec1, *vec2)
+		dis := cosineSimilarity(*vec1, *vec2)
 		sortitem := &SortItem{Idx: widx, Dis: dis}
 		dis_vector = append(dis_vector, sortitem)
 	}
@@ -720,7 +755,7 @@ func (p *TDoc2VecImpl) findKNNWordsByVector(vector *neuralnet.TVector) {
 	vocabsize := p.Corpus.GetVocabCnt()
 	dis_vector := make(TSortItemSlice, vocabsize, vocabsize)
 	for i := 0; i < vocabsize; i++ {
-		dis := ConsineDistance(*vector, *p.NN.GetSyn0(int32(i)))
+		dis := cosineSimilarity(*vector, *p.NN.GetSyn0(int32(i)))
 		dis_vector[i] = &SortItem{Idx: int32(i), Dis: dis}
 	}
 	//大爷的 go的排序太麻烦,还不如自己写个快排
@@ -741,7 +776,7 @@ func (p *TDoc2VecImpl) findKNNDocsByVector(vector *neuralnet.TVector) {
 	doccnt := p.Corpus.GetDocCnt()
 	dis_vector := make(TSortItemSlice, doccnt, doccnt)
 	for i := 0; i < doccnt; i++ {
-		dis := ConsineDistance(*vector, *p.NN.GetDSyn0(int32(i)))
+		dis := cosineSimilarity(*vector, *p.NN.GetDSyn0(int32(i)))
 		dis_vector[i] = &SortItem{Idx: int32(i), Dis: dis}
 	}
 	//大爷的 go的排序太麻烦,还不如自己写个快排
@@ -882,7 +917,7 @@ func QuickSort(i, j int, vec []*SortItem) {
 	QuickSort(M+1, jj, vec)
 }
 
-func ConsineDistance(a neuralnet.TVector, b neuralnet.TVector) (dis float64) {
+func cosineSimilarity(a neuralnet.TVector, b neuralnet.TVector) (dis float64) {
 	var sum, sum_a, sum_b float64
 	for i := 0; i < len(a); i++ {
 		sum += float64(a[i] * b[i])
