@@ -6,6 +6,8 @@ golang implement of Tomas Mikolov's word/document embedding. You may want to fee
 [@bjsjs_11_83 doc2vec-golang]$ ./control build
 traning Exec build ok
 build ok
+
+#Training data(data/zhihu_data.1w) is one document per line, divided by tab
 [@bjsjs_11_83 doc2vec-golang]$ ./train  data/zhihu_data.1w          
 Skip-Gram Iter:48 Alpha: 0.000796  Progress: 96.81%  Words/sec: 24.27k  
 2018-03-30 14:53:00.218536235 +0800 CST training end, 1342521 26861
