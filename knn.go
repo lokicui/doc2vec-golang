@@ -4,7 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/lokicui/doc2vec-golang/doc2vec"
-    "github.com/lokicui/doc-sim-cal/utils"
+    "github.com/lokicui/doc2vec-golang/common"
+    "github.com/lokicui/doc2vec-golang/segmenter"
 	"log"
 	"os"
 	"strconv"
@@ -12,16 +13,22 @@ import (
 )
 
 func get_segmented_query(text string) string {
-    qItems, err := utils.SegmentQuery(text, false)
-    if err != nil {
-        return ""
-    }
-    if len(qItems) == 0 {
-        return ""
-    }
+    seg := segmenter.GetSegmenter()
+    // qItems, err := seg.SegmentQuery(text, false)
+    // if err != nil {
+    //     return ""
+    // }
+    // if len(qItems) == 0 {
+    //     return ""
+    // }
+    // qWords := []string{}
+    // for _, item := range qItems {
+    //     word := common.SBC2DBC(item.Word)
+    //     qWords = append(qWords, word)
+    // }
     qWords := []string{}
-    for _, item := range qItems {
-        word := utils.SBC2DBC(item.Word)
+    for item := range seg.Cut(text, false) {
+        word := common.SBC2DBC(item.Text())
         qWords = append(qWords, word)
     }
     return strings.Join(qWords, " ")
