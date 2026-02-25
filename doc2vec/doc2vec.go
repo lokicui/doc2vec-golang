@@ -261,6 +261,84 @@ func (p *TDoc2VecImpl) Train(fname string) {
 	}
 }
 
+// TrainSWE trains the model with Semantic Word Embedding (synonym) constraints.
+// sweFile: path to the constraint file (each line: wordA wordB wordC wordD, meaning sim(A,B)>sim(C,D))
+// sweCoeff: interpolation weight for semantic loss (0.1 is a good default)
+// sweHingeMargin: hinge loss margin (0.0 is a good default)
+// sweWeightDecay: L2 regularization coefficient (0.0 is a good default)
+// sweAddTime: training progress % at which to start applying constraints (0.0 means from the beginning)
+func (p *TDoc2VecImpl) TrainSWE(fname string, sweFile string, sweCoeff, sweHingeMargin, sweWeightDecay, sweAddTime float64) {
+	p.Trainfile = fname
+	p.Corpus.Build(fname)
+	if p.UseNEG {
+		p.initUnigramTable()
+	}
+	p.NN = neuralnet.NewNN(p.Corpus.GetDocCnt(), p.Corpus.GetVocabCnt(), p.Dim, p.UseHS, p.UseNEG)
+
+	p.sweConfig = NewSWEConfig(sweCoeff, sweHingeMargin, sweWeightDecay, sweAddTime)
+
+	constraints, err := LoadSWEConstraints(sweFile, p.Corpus)
+	if err != nil {
+		log.Fatal(err)
+	}
+	p.sweConstraints = constraints
+
+	loss, rate := p.sweConstraints.EvalSWEQuality(p.NN, p.sweConfig.HingeMargin)
+	log.Printf("SWE initial: hinge_loss=%.4f satisfy_rate=%.4f", loss, rate)
+
+	if p.UseCbow {
+		p.trainCbow()
+	} else {
+		p.trainSkipGram()
+	}
+
+	loss, rate = p.sweConstraints.EvalSWEQuality(p.NN, p.sweConfig.HingeMargin)
+	log.Printf("SWE final: hinge_loss=%.4f satisfy_rate=%.4f", loss, rate)
+}
+
+// applySWEGradient applies the semantic constraint gradient to a word's Syn0 vector.
+// Called during training for each word that has associated constraints.
+func (p *TDoc2VecImpl) applySWEGradient(widx int32, alpha float64) {
+	if p.sweConstraints == nil || p.sweConfig == nil || p.sweConfig.Coeff <= 0 {
+		return
+	}
+
+	constraints, ok := p.sweConstraints.WordToConstraints[widx]
+	if !ok || len(constraints) == 0 {
+		return
+	}
+
+	grad := p.sweConstraints.ComputeSWEGradient(widx, p.NN, p.Dim, p.sweConfig.HingeMargin)
+
+	syn0 := p.NN.GetSyn0(widx)
+
+	// Weight decay: syn0 -= alpha * weightDecay * syn0
+	if p.sweConfig.WeightDecay > 0 {
+		decay := alpha * p.sweConfig.WeightDecay
+		for i := 0; i < p.Dim; i++ {
+			(*syn0)[i] -= float32(decay) * (*syn0)[i]
+		}
+	}
+
+	// Apply semantic gradient: syn0 += (-coeff * alpha) * grad
+	scale := -p.sweConfig.Coeff * alpha
+	for i := 0; i < p.Dim; i++ {
+		(*syn0)[i] += float32(scale) * grad[i]
+	}
+}
+
+// sweActive returns true if SWE constraints should be applied at current training progress
+func (p *TDoc2VecImpl) sweActive() bool {
+	if p.sweConstraints == nil || p.sweConfig == nil || p.sweConfig.Coeff <= 0 {
+		return false
+	}
+	if p.sweConfig.AddTime > 0 {
+		progress := float64(p.TrainedWords) / float64(p.Iters*p.Corpus.GetWordsCnt()+1) * 100
+		return progress >= p.sweConfig.AddTime
+	}
+	return true
+}
+
 func (p *TDoc2VecImpl) SaveModel(fname string) (err error) {
 	fd, err := os.Create(fname)
 	if err != nil {
@@ -499,6 +577,11 @@ func (p *TDoc2VecImpl) trainSkipGram4Pair(centralwidx int32, rangevec *neuralnet
 
 func (p *TDoc2VecImpl) trainSkipGram4Document(wordsidx []int32, dsyn0 *neuralnet.TVector, alpha float64, infer bool) {
 	for spos, widx := range wordsidx {
+		// 在标准Skip-Gram更新之前，应用语义约束梯度
+		if !infer && p.sweActive() {
+			p.applySWEGradient(widx, alpha)
+		}
+
 		//随机窗口大小
 		b := p.getRandomWindowSize()
 		if infer {
@@ -540,10 +623,15 @@ func (p *TDoc2VecImpl) trainCbow4Document(wordsidx []int32, dsyn0 *neuralnet.TVe
     defer func(){ p.Pool.Put(&neu1copy) }()
 
 	for spos, widx := range wordsidx {
-        neu1.Reset()
-        neu1e.Reset()
-        syn1copy.Reset()
-        neu1copy.Reset()
+		// 在标准CBOW更新之前，应用语义约束梯度
+		if !infer && p.sweActive() {
+			p.applySWEGradient(widx, alpha)
+		}
+
+		neu1.Reset()
+		neu1e.Reset()
+		syn1copy.Reset()
+		neu1copy.Reset()
 		b := p.getRandomWindowSize()
 		if infer {
 			b = 0
@@ -667,11 +755,12 @@ func (p *TDoc2VecImpl) trainSkipGram() {
 	last_trained_words := 0
 	alpha := p.getTrainAlpha()
 	stime := time.Now()
+	sweLogCounter := 0
 	for i := 0; i < p.Iters; i++ {
 		wg := new(sync.WaitGroup)
 		for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
 			docidx, wordsidx := docidx_, wordsidx_
-            tokens <- struct{}{}
+			tokens <- struct{}{}
 			wg.Add(1)
 			go func() {
 				defer func() { <-tokens }()
@@ -682,9 +771,16 @@ func (p *TDoc2VecImpl) trainSkipGram() {
 				if last_trained_words > PROGRESS_BAR_THRESHOLD {
 					last_trained_words = 0
 					alpha = p.getTrainAlpha()
+					progress := float64(p.TrainedWords) / float64(p.Iters*p.Corpus.GetWordsCnt()+1) * 100
 					fmt.Printf("%cSkip-Gram Iter:%v Alpha: %f  Progress: %.2f%%  Words/sec: %.2fk  ", 13, i, alpha,
-						float64(p.TrainedWords)/float64(p.Iters*p.Corpus.GetWordsCnt()+1)*100,
+						progress,
 						float64(p.TrainedWords)/float64(time.Since(stime))*100*1000)
+
+					sweLogCounter++
+					if p.sweConstraints != nil && sweLogCounter%10 == 0 {
+						loss, rate := p.sweConstraints.EvalSWEQuality(p.NN, p.sweConfig.HingeMargin)
+						fmt.Printf("\n  SWE: hinge_loss=%.4f satisfy_rate=%.4f\n", loss, rate)
+					}
 				}
 				dsyn0 := p.NN.GetDSyn0(int32(docidx))
 				p.trainSkipGram4Document(wordsidx, dsyn0, alpha, false)
@@ -702,11 +798,12 @@ func (p *TDoc2VecImpl) trainCbow() {
 	last_trained_words := 0
 	alpha := p.getTrainAlpha()
 	stime := time.Now()
+	sweLogCounter := 0
 	for i := 0; i < p.Iters; i++ {
 		wg := new(sync.WaitGroup)
 		for docidx_, wordsidx_ := range p.Corpus.GetAllDocWordsIdx() {
 			docidx, wordsidx := docidx_, wordsidx_
-            tokens <- struct{}{}
+			tokens <- struct{}{}
 			wg.Add(1)
 			go func() {
 				defer func() { <-tokens }()
@@ -717,9 +814,16 @@ func (p *TDoc2VecImpl) trainCbow() {
 				if last_trained_words > PROGRESS_BAR_THRESHOLD {
 					last_trained_words = 0
 					alpha = p.getTrainAlpha()
+					progress := float64(p.TrainedWords) / float64(p.Iters*p.Corpus.GetWordsCnt()+1) * 100
 					fmt.Printf("%cCBOW Iter:%v Alpha: %f  Progress: %.2f%%  Words/sec: %.2fk  ", 13, i, alpha,
-						float64(p.TrainedWords)/float64(p.Iters*p.Corpus.GetWordsCnt()+1)*100,
+						progress,
 						float64(p.TrainedWords)/float64(time.Since(stime))*100*1000)
+
+					sweLogCounter++
+					if p.sweConstraints != nil && sweLogCounter%10 == 0 {
+						loss, rate := p.sweConstraints.EvalSWEQuality(p.NN, p.sweConfig.HingeMargin)
+						fmt.Printf("\n  SWE: hinge_loss=%.4f satisfy_rate=%.4f\n", loss, rate)
+					}
 				}
 				dsyn0 := p.NN.GetDSyn0(int32(docidx))
 				p.trainCbow4Document(wordsidx, dsyn0, alpha, false)
