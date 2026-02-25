@@ -1,0 +1,60 @@
+# Synonym/Semantic constraint file for doc2vec SWE training
+# Format: word_A word_B word_C word_D
+# Meaning: sim(word_A, word_B) > sim(word_C, word_D)
+# i.e. word_A and word_B should be more similar than word_C and word_D
+#
+# These constraints are derived from common Chinese semantic relationships
+# found in the zhihu corpus vocabulary.
+
+# 问答/知识类同义关系 > 不相关词对
+问题 问 吃 快
+回答 答案 游戏 吃
+用户 人 网站 吃
+知 乎 广告 手机
+
+# 技术领域同义关系 > 不相关词对
+网站 网页 时间 说
+软件 产品 时候 多
+技术 专业 快 说
+功能 使用 时间 个人
+
+# 情感/评价类同义关系 > 不相关词对
+喜欢 好 网站 技术
+觉得 感觉 产品 广告
+应该 需要 游戏 朋友
+可以 能 手机 时间
+
+# 动作类同义关系 > 不相关词对
+看 发现 做 大
+想 觉得 网站 快
+说 问 手机 大
+做 工作 游戏 时间
+
+# 程度/范围类同义关系 > 不相关词对
+很多 多 技术 快
+非常 很 工作 手机
+更 比较 回答 吃
+都 也 广告 时候
+
+# 人/实体类同义关系 > 不相关词对
+他 她 网站 时间
+我们 大家 广告 吃
+自己 个人 游戏 快
+朋友 人 技术 大
+
+# 否定/对立词对应该比不相关更相似
+不 没有 广告 时候
+不是 没 手机 快
+不能 无法 游戏 大
+不会 没有 网站 说
+
+# 时间相关词语义接近 > 不相关
+现在 目前 广告 吃
+时候 时间 产品 快
+已经 过 技术 大
+
+# 跨领域语义距离约束
+问题 回答 吃 快
+用户 产品 时间 大
+网站 技术 吃 说
+工作 专业 游戏 快

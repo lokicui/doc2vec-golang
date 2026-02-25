@@ -17,6 +17,7 @@ type TSortItemSlice []*SortItem
 
 type IDoc2Vec interface {
 	Train(fname string)
+	TrainSWE(fname string, sweFile string, sweCoeff, sweHingeMargin, sweWeightDecay, sweAddTime float64)
 	GetCorpus() corpus.ICorpus
 	GetNeuralNet() neuralnet.INeuralNet
 	SaveModel(fname string) (err error)
@@ -29,7 +30,7 @@ type IDoc2Vec interface {
 	Doc2Words(docidx int)
 	GetLikelihood4Doc(context string) (likelihood float64)
 	GetLeaveOneOutKwds(content string, iters int)
-    DocSimCal(content1 string, content2 string) (dis float64)
+	DocSimCal(content1 string, content2 string) (dis float64)
 }
 
 type TDoc2VecImpl struct {
@@ -45,5 +46,8 @@ type TDoc2VecImpl struct {
 	TrainedWords int
 	Corpus       corpus.ICorpus
 	NN           neuralnet.INeuralNet
-    Pool         *sync.Pool
+	Pool         *sync.Pool
+	// SWE (Semantic Word Embedding) fields — runtime only, not serialized
+	sweConfig      *SWEConfig      `msg:"-"`
+	sweConstraints *SWEConstraints `msg:"-"`
 }

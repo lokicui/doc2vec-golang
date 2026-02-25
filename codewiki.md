@@ -937,7 +937,133 @@ defer func() { p.Pool.Put(&neu1) }()
 
 ---
 
-## 18. 扩展阅读
+## 18. 同义词语义约束 (SWE)
+
+### 概述
+
+基于 ACL-2015 论文《Learning Semantic Word Embeddings based on Ordinal Knowledge Constraints》，本项目在 Go 实现的 doc2vec 训练中集成了 **Semantic Word Embedding (SWE)** 同义词约束功能。
+
+核心思想：在标准 Word2Vec/Doc2Vec 训练的基础上，额外引入**序数知识约束**（ordinal knowledge constraints），使得训练出的词向量能够更好地反映同义词/反义词等语义关系。
+
+### 约束格式
+
+约束以**不等式**的形式表达：
+
+```
+sim(word_A, word_B) > sim(word_C, word_D)
+```
+
+即 word_A 和 word_B 的相似度应高于 word_C 和 word_D 的相似度。
+
+**约束文件格式：** 每行 4 个空格分隔的词
+
+```
+word_A word_B word_C word_D
+```
+
+示例（`data/synonym_constraints.txt`）：
+
+```
+问题 回答 吃 快       # "问题"与"回答"应比"吃"与"快"更相似
+用户 人 网站 吃       # "用户"与"人"应比"网站"与"吃"更相似
+喜欢 好 网站 技术     # "喜欢"与"好"应比"网站"与"技术"更相似
+```
+
+### 算法原理
+
+#### 损失函数
+
+使用 **Hinge Loss** 作为语义约束的损失函数：
+
+```
+L_sem = max(0, margin - (cos(A,B) - cos(C,D)))
+```
+
+总损失为 word2vec 损失与语义损失的加权组合。
+
+#### 梯度计算
+
+对每个涉及约束的词 w，计算余弦相似度对 w 的偏导数：
+
+```
+∂cos(A,B)/∂A = B/(|A||B|) - cos(A,B) · A/|A|²
+∂cos(A,B)/∂B = A/(|A||B|) - cos(A,B) · B/|B|²
+```
+
+然后通过 hinge 函数的链式法则得到最终梯度，更新词向量：
+
+```
+V(w) += (-coeff × α) × Σ f'(hinge_input) × (∂cos(C,D)/∂w - ∂cos(A,B)/∂w)
+```
+
+#### 训练集成
+
+在每个训练词位置的标准 Skip-Gram/CBOW 更新**之前**，先检查该词是否参与语义约束，如果是则：
+
+1. 计算该词在所有相关约束中的语义梯度
+2. （可选）应用权重衰减
+3. 将语义梯度应用到词向量
+4. 继续标准的 word2vec/doc2vec 训练步骤
+
+### 数据结构
+
+```go
+// SWE 配置
+type SWEConfig struct {
+    Coeff       float64  // 语义损失权重（默认 0.1）
+    HingeMargin float64  // hinge 损失边界（默认 0.0）
+    WeightDecay float64  // L2 正则化系数（默认 0.0）
+    AddTime     float64  // 训练进度 % 后开始施加约束（默认 0.0）
+}
+
+// 单个不等式约束
+type InEquation struct {
+    IndexA, IndexB, IndexC, IndexD int32
+}
+
+// 约束集合 + 词→约束的倒排索引
+type SWEConstraints struct {
+    Inequations       []InEquation
+    WordToConstraints  map[int32][]int  // 词索引 → 约束下标列表
+}
+```
+
+### 使用方式
+
+```bash
+# 带语义约束训练
+./train -corpus data/zhihu_data.1w \
+        -swe data/synonym_constraints.txt \
+        -swe-coeff 0.1 \
+        -swe-hinge 0.0 \
+        -swe-decay 0.0 \
+        -swe-addtime 0 \
+        -output swe.model
+
+# 查询（与普通模型完全一致）
+./knn swe.model
+```
+
+### SWE 参数说明
+
+| 参数 | 标志 | 默认值 | 说明 |
+|------|------|--------|------|
+| 约束文件 | `-swe` | (空) | 不等式约束文件路径，为空则不使用 SWE |
+| 插值系数 | `-swe-coeff` | 0.1 | 语义损失权重。越大，约束影响越强 |
+| Hinge 边界 | `-swe-hinge` | 0.0 | hinge 函数的 margin，增大可强制约束 |
+| 权重衰减 | `-swe-decay` | 0.0 | L2 正则化，防止过拟合 |
+| 施加时机 | `-swe-addtime` | 0.0 | 训练进度达到此 % 后才开始施加约束 |
+
+### 文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `doc2vec/swe.go` | SWE 核心实现：数据结构、约束加载、梯度计算、质量评估 |
+| `data/synonym_constraints.txt` | 示例约束文件（基于知乎语料词表的中文同义词约束） |
+
+---
+
+## 19. 扩展阅读
 
 ### 论文
 
