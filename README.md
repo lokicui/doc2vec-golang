@@ -1,5 +1,7 @@
 # doc2vec-golang
 
+> [English](README_EN.md)
+
 Go 语言实现的 Word2Vec / Doc2Vec（Paragraph Vector）词向量与文档向量训练工具。基于 Tomas Mikolov 的 [word2vec](http://arxiv.org/pdf/1301.3781.pdf) 和 [doc2vec](http://cs.stanford.edu/~quocle/paragraph_vector.pdf) 两篇经典论文，支持 **同义词语义约束（SWE）** 增强训练。
 
 ## 特性
